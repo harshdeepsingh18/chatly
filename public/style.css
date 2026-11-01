@@ -105,6 +105,9 @@ header #search-input::placeholder { color: var(--muted); }
 #call-controls { display: flex; gap: 0.4rem; }
 #call-controls button { border-radius: 10px; background: #292e30; color: var(--text); font-size: 0.82rem; font-weight: 600; padding: 0.45rem 0.8rem; }
 #call-controls button:hover { filter: brightness(1.12); }
+#call-controls #tic-tac-toe-btn { width: auto; min-width: 94px; height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 0.42rem; padding: 0 0.8rem; border: 1px solid rgba(211,197,255,0.55); border-radius: 11px; background: linear-gradient(135deg, #c5b4ff, #a38be9); color: #211936; font-size: 0.78rem; font-weight: 750; }
+#call-controls #tic-tac-toe-btn:hover { filter: brightness(1.08); box-shadow: 0 3px 12px rgba(168,141,240,0.25); }
+#tic-tac-toe-btn svg { width: 19px; height: 19px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 header small { opacity: 0.8; }
 header button { background: transparent; color: inherit; font-size: 1.2rem; padding: 0.2rem 0.5rem; }
 #menu-btn { display: none; }
@@ -186,8 +189,15 @@ header #details-toggle { display: none; }
 }
 #file-btn { min-width: 38px; height: 38px; border-radius: 50%; background: var(--bg); color: var(--accent); font-size: 1.4rem; line-height: 1; }
 #file-btn:hover { background: var(--line); }
-#voice-message-btn { flex: 0 0 38px; width: 38px; height: 38px; border-radius: 50%; background: var(--bg); color: var(--accent); font-size: 1.1rem; }
-#voice-message-btn:hover { background: var(--line); }
+#aura-shortcut-btn { flex: 0 0 auto; height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; padding: 0 0.7rem; border: 1px solid rgba(168,141,240,0.35); border-radius: 11px; background: rgba(168,141,240,0.1); color: #c8b5ff; font-size: 0.8rem; font-weight: 700; }
+#aura-shortcut-btn:hover { border-color: #a88df0; background: rgba(168,141,240,0.18); }
+#aura-shortcut-btn svg { width: 16px; height: 16px; fill: currentColor; }
+#aura-shortcut-btn:focus-visible { outline: 2px solid #a88df0; outline-offset: 2px; }
+#voice-message-btn { flex: 0 0 40px; width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--text); transition: background 150ms ease, color 150ms ease, border-color 150ms ease; }
+#voice-message-btn:hover { border-color: var(--accent); background: var(--panel); color: var(--accent); }
+#voice-message-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#voice-message-btn .voice-mic-icon { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+#voice-message-btn .voice-stop-icon { width: 12px; height: 12px; border-radius: 3px; background: currentColor; }
 #voice-message-btn.recording { background: #d9304f; color: #fff; animation: voice-pulse 1.1s ease-in-out infinite alternate; }
 .voice-message-player { display: block; width: min(320px, 100%); min-width: 220px; margin-top: 0.25rem; }
 @keyframes voice-pulse { to { box-shadow: 0 0 0 5px rgba(217, 48, 79, 0.2); } }
@@ -206,6 +216,29 @@ header #details-toggle { display: none; }
 
 .call-modal { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 1rem; background: rgba(8, 10, 18, 0.82); backdrop-filter: blur(8px); }
 .call-card { width: min(820px, 100%); max-height: min(94dvh, 900px); overflow: auto; display: grid; grid-template-rows: auto auto auto; gap: 1rem; padding: 1rem; border: 1px solid #3b3b3b; border-radius: 22px; background: #202124; color: #f5f5f5; box-shadow: 0 28px 90px rgba(0,0,0,0.5); }
+.tic-tac-toe-card { width: min(420px, 100%); max-height: min(92dvh, 650px); overflow: auto; padding: 1.1rem; border: 1px solid var(--line); border-radius: 20px; background: var(--panel); color: var(--text); box-shadow: 0 28px 90px rgba(0,0,0,0.5); }
+.tic-tac-toe-card .settings-heading { display: flex; align-items: center; justify-content: space-between; padding-bottom: 0.85rem; border-bottom: 1px solid var(--line); }
+.tic-tac-toe-card .settings-heading h2 { margin: 0; font-size: 1.12rem; }
+.tic-tac-toe-card .settings-heading button { width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 50%; background: transparent; color: var(--muted); font-size: 1.1rem; }
+.tic-tac-toe-score { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr) auto; align-items: center; gap: 0.7rem; margin: 1rem 0 0.35rem; padding: 0.75rem; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); text-align: center; }
+.tic-tac-toe-score > div { display: grid; gap: 0.14rem; min-width: 0; }
+.tic-tac-toe-score strong { overflow: hidden; color: var(--muted); font-size: 0.68rem; text-overflow: ellipsis; white-space: nowrap; }
+.tic-tac-toe-score b { color: var(--accent); font-size: 1.35rem; }
+.tic-tac-toe-score small { color: var(--muted); font-size: 0.58rem; letter-spacing: 0.08em; }
+.tic-tac-toe-score > span { color: var(--muted); font-size: 0.7rem; font-weight: 750; }
+.tic-tac-toe-score .tic-tac-toe-draws { padding-left: 0.65rem; border-left: 1px solid var(--line); }
+.tic-tac-toe-status { min-height: 1.3rem; margin: 0.85rem 0; color: var(--muted); font-size: 0.85rem; text-align: center; }
+.tic-tac-toe-board { width: min(300px, 100%); aspect-ratio: 1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.55rem; margin: 0 auto 0.9rem; }
+.tic-tac-toe-square { display: grid; place-items: center; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); color: var(--text); font-size: clamp(2rem, 11vw, 3rem); font-weight: 800; transition: transform 120ms, background 120ms, border-color 120ms; }
+.tic-tac-toe-square:not(:disabled):hover { transform: translateY(-2px); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg)); }
+.tic-tac-toe-square:disabled { cursor: default; opacity: 1; }
+.tic-tac-toe-square.mark-x { color: #a88df0; }
+.tic-tac-toe-square.mark-o { color: #52c5ba; }
+.tic-tac-toe-primary, .tic-tac-toe-secondary { min-height: 42px; padding: 0.65rem 1rem; border: 1px solid transparent; border-radius: 11px; font-size: 0.85rem; font-weight: 700; }
+.tic-tac-toe-primary { width: 100%; background: #a88df0; color: #171222; }
+.tic-tac-toe-secondary { background: var(--bg); color: var(--text); border-color: var(--line); }
+.tic-tac-toe-actions { display: flex; gap: 0.6rem; }
+.tic-tac-toe-actions .tic-tac-toe-secondary { flex: 0 0 auto; }
 .call-card > .call-header { display: flex; align-items: center; gap: 1rem; padding: 0.15rem 0.1rem; background: transparent; color: #f5f5f5; }
 .call-participant { min-width: 0; flex: 1; display: flex; align-items: center; gap: 0.7rem; }
 .call-avatar { width: 42px; height: 42px; border: 1px solid rgba(255,255,255,0.2); }
@@ -335,6 +368,8 @@ header #details-toggle { width: 36px; height: 36px; border: 1px solid var(--line
   .conversation-identity small { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.68rem; }
   .conversation-tools { gap: 0.15rem; }
   .conversation-tools button, #call-controls button { width: 31px; height: 31px; font-size: 0.92rem; }
+  #call-controls #tic-tac-toe-btn { width: auto; min-width: 72px; height: 33px; gap: 0.3rem; padding: 0 0.5rem; font-size: 0.7rem; }
+  #tic-tac-toe-btn svg { width: 17px; height: 17px; }
   .conversation-tools #add-group-members-header { width: 31px; min-width: 31px; padding: 0; font-size: 0; }
   .conversation-tools #add-group-members-header::first-letter { font-size: 1rem; }
   .conversation-tools input { width: 0; min-width: 0; padding: 0; border: 0; }
@@ -342,6 +377,8 @@ header #details-toggle { width: 36px; height: 36px; border: 1px solid var(--line
   #conversation-title { padding-left: max(0.75rem, env(safe-area-inset-left)); padding-right: max(0.75rem, env(safe-area-inset-right)); }
   #call-controls { gap: 0.3rem; }
   #call-controls button { font-size: 0.72rem; padding: 0.4rem 0.6rem; }
+  #aura-shortcut-btn { width: 38px; height: 38px; padding: 0; }
+  #aura-shortcut-btn span { display: none; }
   header button { padding: 0.2rem; font-size: 0.95rem; }
   .call-videos { min-height: 180px; }
 }

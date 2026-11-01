@@ -9,6 +9,7 @@ let savedItems = [];
 let showSavedOnly = false;
 let currentConversation = "general";
 let currentDirectUser = null;
+let ticTacToeState = null;
 let pinnedItems = [];
 let onlineUserCache = [];
 let myGroups = [];
@@ -61,6 +62,7 @@ let voiceRecorder = null;
 let voiceStream = null;
 let voiceChunks = [];
 const voiceMessageButton = $("voice-message-btn");
+const voiceMicIcon = '<svg class="voice-mic-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="12" rx="3"></rect><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3m-4 0h8"></path></svg>';
 voiceMessageButton.addEventListener("click", async () => {
   if (voiceRecorder?.state === "recording") {
     voiceRecorder.stop();
@@ -92,7 +94,7 @@ voiceMessageButton.addEventListener("click", async () => {
       voiceRecorder = null;
       voiceChunks = [];
       voiceMessageButton.disabled = false;
-      voiceMessageButton.textContent = "🎙";
+      voiceMessageButton.innerHTML = voiceMicIcon;
       voiceMessageButton.classList.remove("recording");
       voiceMessageButton.setAttribute("aria-label", "Record voice message");
       voiceMessageButton.title = "Recording ready — send voice message";
@@ -100,7 +102,7 @@ voiceMessageButton.addEventListener("click", async () => {
     }, { once: true });
     voiceRecorder.start();
     voiceMessageButton.classList.add("recording");
-    voiceMessageButton.textContent = "■";
+    voiceMessageButton.innerHTML = '<span class="voice-stop-icon" aria-hidden="true"></span>';
     voiceMessageButton.setAttribute("aria-label", "Stop and send recording");
     voiceMessageButton.title = "Recording… select to stop and send";
   } catch (error) {
@@ -109,9 +111,24 @@ voiceMessageButton.addEventListener("click", async () => {
     addSystemMessage(error.name === "NotAllowedError" ? "Allow microphone access to record a voice message." : "Could not start voice recording.");
   }
 });
+function activateAuraShortcut() {
+  const currentText = input.value.trimStart();
+  if (!/^@aura\b/i.test(currentText) && !/^\/aura\b/i.test(currentText)) input.value = currentText ? `@aura ${currentText}` : "@aura ";
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+}
+$("aura-shortcut-btn").addEventListener("click", activateAuraShortcut);
+window.addEventListener("keydown", (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "a") {
+    event.preventDefault();
+    activateAuraShortcut();
+  }
+});
 $("message-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const text = input.value.trim();
+  const typedText = input.value.trim();
+  const slashAuraMatch = typedText.match(/^\/aura(?:\s+([\s\S]+))?$/i);
+  const text = slashAuraMatch ? (slashAuraMatch[1] ? `@aura ${slashAuraMatch[1]}` : "") : typedText;
   const file = selectedFile;
   if (!text && !file) return;
   $("send-btn").disabled = true;
@@ -494,6 +511,95 @@ socket.on("direct opened", ({ user }) => {
   document.querySelectorAll(".room-button").forEach((button) => button.classList.remove("active"));
   document.querySelectorAll(".group-button").forEach((button) => button.classList.remove("active"));
   updateDetailsPanel();
+});
+socket.on("tic-tac-toe state", (game) => {
+  if (game && game.conversation !== currentConversation) {
+    if (game.status === "pending" && game.invitedBy !== currentUserId && game.players.includes(currentUserId)) incrementUnread("Tic Tac Toe invitation");
+    return;
+  }
+  const previous = ticTacToeState;
+  ticTacToeState = game;
+  if (game?.status === "pending" && game.invitedBy !== currentUserId && previous?.status !== "pending") {
+    addSystemMessage(`${currentDirectUser?.name || "Your friend"} invited you to play Tic Tac Toe.`);
+  }
+  renderTicTacToe();
+});
+function renderTicTacToe() {
+  const content = $("tic-tac-toe-content");
+  if (!content) return;
+  content.replaceChildren();
+  const game = ticTacToeState;
+  const friend = currentDirectUser;
+  const meScore = game?.scores?.[currentUserId] || { wins: 0, losses: 0, draws: 0 };
+  const friendScore = game?.scores?.[friend?.id] || { wins: 0, losses: 0, draws: 0 };
+  const score = document.createElement("div");
+  score.className = "tic-tac-toe-score";
+  score.innerHTML = `<div><strong>YOU</strong><b>${meScore.wins || 0}</b><small>WINS</small></div><span>VS</span><div><strong></strong><b>${friendScore.wins || 0}</b><small>WINS</small></div><div class="tic-tac-toe-draws"><b>${meScore.draws || 0}</b><small>DRAWS</small></div>`;
+  score.children[0].children[0].textContent = username || "You";
+  score.children[2].children[0].textContent = friend?.name || "Friend";
+  content.append(score);
+  const status = document.createElement("p");
+  status.className = "tic-tac-toe-status";
+  content.append(status);
+  if (!game || game.status === "declined" || game.status === "finished") {
+    if (game?.status === "finished") status.textContent = game.winner ? (game.winner === currentUserId ? "You won! 🎉" : `${friend?.name || "Your friend"} won this round.`) : "It's a draw!";
+    else if (game?.status === "declined") status.textContent = "Invitation declined. Invite them again when they’re ready.";
+    else status.textContent = "Challenge your friend to a quick game.";
+    const invite = document.createElement("button");
+    invite.type = "button";
+    invite.className = "tic-tac-toe-primary";
+    invite.textContent = game?.status === "finished" ? "Play again" : "Invite to play";
+    invite.addEventListener("click", () => socket.emit("tic-tac-toe invite"));
+    content.append(invite);
+    return;
+  }
+  if (game.status === "pending") {
+    const invited = game.invitedBy !== currentUserId;
+    status.textContent = invited ? `${friend?.name || "Your friend"} wants to play!` : `Waiting for ${friend?.name || "your friend"} to accept…`;
+    if (invited) {
+      const actions = document.createElement("div");
+      actions.className = "tic-tac-toe-actions";
+      const accept = document.createElement("button");
+      accept.type = "button";
+      accept.className = "tic-tac-toe-primary";
+      accept.textContent = "Accept and play";
+      accept.addEventListener("click", () => socket.emit("tic-tac-toe accept"));
+      const decline = document.createElement("button");
+      decline.type = "button";
+      decline.className = "tic-tac-toe-secondary";
+      decline.textContent = "Not now";
+      decline.addEventListener("click", () => socket.emit("tic-tac-toe decline"));
+      actions.append(accept, decline);
+      content.append(actions);
+    }
+    return;
+  }
+  const myTurn = game.turn === currentUserId;
+  const myMark = game.players[0] === currentUserId ? "X" : "O";
+  status.textContent = myTurn ? `Your turn — you're ${myMark}.` : `${friend?.name || "Your friend"} is playing…`;
+  const board = document.createElement("div");
+  board.className = "tic-tac-toe-board";
+  game.board.forEach((cell, index) => {
+    const square = document.createElement("button");
+    square.type = "button";
+    square.className = "tic-tac-toe-square" + (cell ? (cell === game.players[0] ? " mark-x" : " mark-o") : "");
+    square.textContent = cell ? (cell === game.players[0] ? "X" : "O") : "";
+    square.setAttribute("aria-label", `Square ${index + 1}${cell ? `, ${square.textContent}` : ", empty"}`);
+    square.disabled = !myTurn || Boolean(cell);
+    square.addEventListener("click", () => socket.emit("tic-tac-toe move", index));
+    board.append(square);
+  });
+  content.append(board);
+}
+$("tic-tac-toe-btn").addEventListener("click", () => {
+  if (!currentDirectUser) return;
+  $("tic-tac-toe-modal").classList.remove("hidden");
+  socket.emit("tic-tac-toe get state");
+  renderTicTacToe();
+});
+$("tic-tac-toe-close").addEventListener("click", () => $("tic-tac-toe-modal").classList.add("hidden"));
+$("tic-tac-toe-modal").addEventListener("click", (event) => {
+  if (event.target === $("tic-tac-toe-modal")) $("tic-tac-toe-modal").classList.add("hidden");
 });
 socket.on("direct notification", ({ conversation, fromId, fromName }) => {
   if (fromId === currentUserId) return;

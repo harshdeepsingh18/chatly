@@ -19,7 +19,7 @@ Start the app by following the setup steps below, then open [Chatly](http://loca
 - Voice and video calls in direct chats
 - Image and document sharing
 - Search and pinned messages per conversation
-- `@aura` study helper powered by Gemini
+- `@aura` study helper powered by Gemini's free tier (OpenAI optional)
 - Message sounds and unread counts in the browser tab title
 - Emoji picker
 - Google sign-in and sign-up through Supabase Auth
@@ -85,11 +85,11 @@ Open a direct chat and choose **Call** or **Video**. Both people need to allow m
 
 ## Aura study helper
 
-Add a Gemini API key to the server's `.env` file to enable Aura:
+For free-tier Aura, create a Gemini API key in [Google AI Studio](https://aistudio.google.com/apikey) and add it to the server's `.env` file:
 
 ```env
 GEMINI_API_KEY=your-gemini-api-key
-GEMINI_MODEL=gemini-3.8-flash
+GEMINI_MODEL=gemini-3.5-flash-lite
 ```
 
-Restart Chatly, then type `@aura explain photosynthesis` in a room or direct conversation. Gemini requests are made by the server using Google's Interactions API, so the API key is not sent to browsers. Chatly uses Gemini directly; no separate Aura project was found in this workspace.
+Restart Chatly, then type `@aura explain photosynthesis` in a room or direct conversation. Chatly uses Gemini when `GEMINI_API_KEY` is set; OpenAI remains an optional fallback if no Gemini key is configured. Keys stay on the server and are not sent to browsers. Google offers free use with limited models and quotas in available regions; free-tier prompts may be used to improve Google's products, so don't send sensitive information. See [Gemini API pricing and free-tier details](https://ai.google.dev/gemini-api/docs/pricing).

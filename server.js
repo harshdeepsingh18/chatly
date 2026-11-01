@@ -32,18 +32,23 @@ const pinsFile = path.join(dataDirectory, "pinned-messages.json");
 const reactionsFile = path.join(dataDirectory, "message-reactions.json");
 const uploadsFile = path.join(dataDirectory, "uploads.json");
 const groupsFile = path.join(dataDirectory, "groups.json");
+const ticTacToeFile = path.join(dataDirectory, "tic-tac-toe.json");
 const uploadDirectory = path.join(dataDirectory, "uploads");
 const supabaseUrl = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "";
-const geminiApiKey = process.env.GEMINI_API_KEY || "";
-const geminiModel = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+const configuredOpenAiApiKey = process.env.OPENAI_API_KEY || "";
+const openAiApiKey = configuredOpenAiApiKey.toLowerCase().startsWith("your-") ? "" : configuredOpenAiApiKey;
+const openAiModel = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+const configuredGeminiApiKey = process.env.GEMINI_API_KEY || "";
+const geminiApiKey = configuredGeminiApiKey.toLowerCase().startsWith("your-") ? "" : configuredGeminiApiKey;
+const geminiModel = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 const chatRooms = ["general", "doubts", "notes"];
 
 // Serve index.html, style.css and script.js from the "public" folder
 app.use(express.static("public"));
 app.use(express.json({ limit: "8kb" }));
 app.get("/config.js", (_req, res) => {
-  res.type("application/javascript").send(`window.CHATLY_SUPABASE_URL = ${JSON.stringify(supabaseUrl)}; window.CHATLY_SUPABASE_ANON_KEY = ${JSON.stringify(supabaseAnonKey)}; window.CHATLY_ROOMS = ${JSON.stringify(chatRooms)}; window.CHATLY_AURA_ENABLED = ${Boolean(geminiApiKey)};`);
+  res.type("application/javascript").send(`window.CHATLY_SUPABASE_URL = ${JSON.stringify(supabaseUrl)}; window.CHATLY_SUPABASE_ANON_KEY = ${JSON.stringify(supabaseAnonKey)}; window.CHATLY_ROOMS = ${JSON.stringify(chatRooms)}; window.CHATLY_AURA_ENABLED = ${Boolean(openAiApiKey || geminiApiKey)};`);
 });
 
 let savedMessages = {};
@@ -58,6 +63,8 @@ let reactionQueue = Promise.resolve();
 const deletingMessages = new Set();
 let uploads = {};
 let groups = {};
+let ticTacToeGames = {};
+let ticTacToeQueue = Promise.resolve();
 let groupsQueue = Promise.resolve();
 let uploadQueue = Promise.resolve();
 let pinQueue = Promise.resolve();
@@ -414,6 +421,18 @@ async function loadMessages() {
   catch (error) { if (error.code !== "ENOENT") throw error; }
   try { groups = JSON.parse(await readFile(groupsFile, "utf8")); }
   catch (error) { if (error.code !== "ENOENT") throw error; }
+  try { ticTacToeGames = JSON.parse(await readFile(ticTacToeFile, "utf8")); }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
+}
+
+function persistTicTacToeGames() {
+  const write = ticTacToeQueue.then(() => writeFile(ticTacToeFile, JSON.stringify(ticTacToeGames), "utf8"));
+  ticTacToeQueue = write.catch((error) => console.error("Could not save Tic Tac Toe scores:", error));
+  return write;
+}
+
+function emitTicTacToeGame(game) {
+  game.players.forEach((userId) => io.to(`user:${userId}`).emit("tic-tac-toe state", game));
 }
 
 function persistMessage(message) {
@@ -445,26 +464,65 @@ function sendConversation(socket, conversation) {
   });
 }
 
-async function askGemini(prompt) {
+async function askOpenAI(prompt) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
   try {
-    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+    const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": geminiApiKey },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${openAiApiKey}` },
       body: JSON.stringify({
-        model: geminiModel,
-        input: `You are Aura, a friendly study helper in Chatly. Explain clearly and briefly, show steps for difficult topics, and say when you are unsure.\n\nStudent question: ${prompt}`,
+        model: openAiModel,
+        instructions: "You are Aura, a friendly study helper in Chatly. Explain clearly and briefly, show steps for difficult topics, and say when you are unsure.",
+        input: prompt,
         store: false
       }),
       signal: controller.signal
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error?.message || "Gemini request failed.");
-    const answer = (data.steps || []).flatMap((step) => step.content || []).filter((part) => part.type === "text").map((part) => part.text).join("\n").trim();
+    if (!response.ok) {
+      const error = new Error(data.error?.message || "OpenAI request failed.");
+      error.code = data.error?.code || data.error?.type;
+      error.status = response.status;
+      throw error;
+    }
+    const answer = (data.output || []).flatMap((item) => item.content || []).filter((part) => part.type === "output_text").map((part) => part.text).join("\n").trim();
     if (!answer) throw new Error("Aura did not return an answer.");
     return answer.slice(0, 8000);
   } finally { clearTimeout(timeout); }
+}
+
+async function askGemini(prompt) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": geminiApiKey },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: "You are Aura, a friendly study helper in Chatly. Explain clearly and briefly, show steps for difficult topics, and say when you are unsure." }] },
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 1200 }
+      }),
+      signal: controller.signal
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      const error = new Error(data.error?.message || "Gemini request failed.");
+      error.code = data.error?.status || data.error?.code;
+      error.status = response.status;
+      throw error;
+    }
+    const answer = (data.candidates?.[0]?.content?.parts || []).map((part) => part.text || "").join("\n").trim();
+    if (!answer) throw new Error("Aura did not return an answer.");
+    return answer.slice(0, 8000);
+  } finally { clearTimeout(timeout); }
+}
+
+async function askAura(prompt) {
+  if (geminiApiKey) return askGemini(prompt);
+  if (openAiApiKey) return askOpenAI(prompt);
+  throw new Error("Aura needs a GEMINI_API_KEY or OPENAI_API_KEY in the server .env file.");
 }
 
 io.on("connection", (socket) => {
@@ -500,6 +558,77 @@ io.on("connection", (socket) => {
       conversation,
       user: { id: targetId, name: usernameByUser.get(targetId), avatar: target?.avatar || "" }
     });
+    socket.emit("tic-tac-toe state", ticTacToeGames[conversation] || null);
+  });
+
+  socket.on("tic-tac-toe get state", () => {
+    const conversation = socket.data.activeConversation;
+    if (!isDirectConversationFor(conversation, socket.data.userId)) return;
+    socket.emit("tic-tac-toe state", ticTacToeGames[conversation] || null);
+  });
+
+  socket.on("tic-tac-toe invite", async () => {
+    const conversation = socket.data.activeConversation;
+    if (!isDirectConversationFor(conversation, socket.data.userId)) return;
+    const peerId = conversation.split(":").slice(1).find((id) => id !== socket.data.userId);
+    if (!peerId || !usernameByUser.has(peerId)) return;
+    const previous = ticTacToeGames[conversation];
+    if (previous?.status === "playing" || previous?.status === "pending") {
+      socket.emit("tic-tac-toe state", previous);
+      return;
+    }
+    const scores = previous?.scores || {};
+    for (const id of [socket.data.userId, peerId]) scores[id] ||= { wins: 0, losses: 0, draws: 0 };
+    const game = {
+      conversation, players: [socket.data.userId, peerId], invitedBy: socket.data.userId,
+      board: Array(9).fill(null), turn: null, status: "pending", winner: null, scores
+    };
+    ticTacToeGames[conversation] = game;
+    try { await persistTicTacToeGames(); emitTicTacToeGame(game); }
+    catch { socket.emit("message error", "Could not save the game invitation. Please try again."); }
+  });
+
+  socket.on("tic-tac-toe accept", async () => {
+    const conversation = socket.data.activeConversation;
+    const game = ticTacToeGames[conversation];
+    if (!game || game.status !== "pending" || game.invitedBy === socket.data.userId || !game.players.includes(socket.data.userId)) return;
+    game.status = "playing";
+    game.board = Array(9).fill(null);
+    game.turn = game.invitedBy;
+    game.winner = null;
+    try { await persistTicTacToeGames(); emitTicTacToeGame(game); }
+    catch { socket.emit("message error", "Could not start the game. Please try again."); }
+  });
+
+  socket.on("tic-tac-toe decline", async () => {
+    const conversation = socket.data.activeConversation;
+    const game = ticTacToeGames[conversation];
+    if (!game || game.status !== "pending" || game.invitedBy === socket.data.userId || !game.players.includes(socket.data.userId)) return;
+    game.status = "declined";
+    game.turn = null;
+    try { await persistTicTacToeGames(); emitTicTacToeGame(game); }
+    catch { socket.emit("message error", "Could not update the game invitation."); }
+  });
+
+  socket.on("tic-tac-toe move", async (index) => {
+    const conversation = socket.data.activeConversation;
+    const game = ticTacToeGames[conversation];
+    if (!game || game.status !== "playing" || game.turn !== socket.data.userId || !game.players.includes(socket.data.userId) || !Number.isInteger(index) || index < 0 || index > 8 || game.board[index] !== null) return;
+    game.board[index] = socket.data.userId;
+    const wins = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+    const won = wins.some((line) => line.every((cell) => game.board[cell] === socket.data.userId));
+    if (won || game.board.every(Boolean)) {
+      game.status = "finished";
+      game.winner = won ? socket.data.userId : null;
+      for (const id of game.players) game.scores[id] ||= { wins: 0, losses: 0, draws: 0 };
+      if (won) {
+        game.scores[socket.data.userId].wins++;
+        game.scores[game.players.find((id) => id !== socket.data.userId)].losses++;
+      } else game.players.forEach((id) => game.scores[id].draws++);
+      game.turn = null;
+    } else game.turn = game.players.find((id) => id !== socket.data.userId);
+    try { await persistTicTacToeGames(); emitTicTacToeGame(game); }
+    catch { socket.emit("message error", "Could not save the game score. Please try again."); }
   });
 
   // 2. Someone sends a message -> broadcast to everyone (including the sender)
@@ -626,12 +755,12 @@ io.on("connection", (socket) => {
     const conversation = socket.data.activeConversation;
     prompt = String(prompt || "").trim().slice(0, 1000);
     if (!conversation || !prompt) return;
-    if (!geminiApiKey) return socket.emit("message error", "Aura needs a GEMINI_API_KEY in the server .env file.");
+    if (!openAiApiKey && !geminiApiKey) return socket.emit("message error", "Aura needs a GEMINI_API_KEY or OPENAI_API_KEY in the server .env file.");
     const lastRequest = auraLastRequestByUser.get(socket.data.userId) || 0;
     if (Date.now() - lastRequest < 4000) return socket.emit("message error", "Give Aura a moment before asking another question.");
     auraLastRequestByUser.set(socket.data.userId, Date.now());
     try {
-      const answer = await askGemini(prompt);
+      const answer = await askAura(prompt);
       const message = {
         id: crypto.randomUUID(), conversation, user: "Aura", senderId: "aura",
         text: answer, time: Date.now(), avatar: "", assistant: true
@@ -644,7 +773,15 @@ io.on("connection", (socket) => {
         io.to(`user:${recipientId}`).emit("direct notification", { conversation, fromId: socket.data.userId, fromName: "Aura", id: message.id });
       }
     } catch (error) {
-      socket.emit("message error", error.name === "AbortError" ? "Aura took too long to answer. Try again." : "Aura could not answer right now.");
+      console.error(`Aura ${geminiApiKey ? "Gemini" : "OpenAI"} request failed:`, error.code || error.name, error.message);
+      const message = error.name === "AbortError" ? "Aura took too long to answer. Try again."
+        : geminiApiKey && error.status === 429 ? "Aura has reached Gemini's free usage limit. Wait a while and try again, or set OPENAI_API_KEY and add API credits."
+        : geminiApiKey && error.status === 403 ? "Gemini API access was denied. Check that your API key and project are enabled for the Gemini API."
+        : ["insufficient_quota", "credit_balance_exhausted", "billing_hard_limit_reached"].includes(error.code) ? "Aura needs OpenAI API credits. Add billing or credits to your OpenAI API account, then try again."
+        : error.status === 401 ? "Aura's OpenAI API key was rejected. Check OPENAI_API_KEY in the server .env file."
+        : error.status === 429 ? "Aura is being rate limited by OpenAI. Wait a moment and try again."
+        : "Aura could not answer right now.";
+      socket.emit("message error", message);
     }
   });
 
