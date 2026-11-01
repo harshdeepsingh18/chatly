@@ -2,6 +2,7 @@
 const socket = io({ autoConnect: false });
 let username = "";
 let currentUserId = "";
+let currentProfile = null;
 let authToken = "";
 let savedItems = [];
 let showSavedOnly = false;
@@ -92,8 +93,8 @@ $("message-form").addEventListener("submit", async (e) => {
 });
 
 // ----- 3. Showing messages -----
-function addMessage({ id, conversation, user, text, time, avatar, attachment }) {
-  const message = { id, conversation, user, text, time, avatar, attachment };
+function addMessage({ id, conversation, user, text, time, avatar, attachment, senderId, assistant, deleted }) {
+  const message = { id, conversation, user, text, time, avatar, attachment, senderId, assistant, deleted };
   const key = messageKey(message);
   if (showSavedOnly && !savedItems.some((item) => messageKey(item) === key)) return;
   const box = document.createElement("div");
@@ -123,12 +124,36 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment }) 
     showAttachment(attachment, file);
   }
   box.append(stamp);
+  if (deleted) {
+    box.classList.add("deleted-message");
+    messagesBox.appendChild(box);
+    messagesBox.scrollTop = messagesBox.scrollHeight;
+    return;
+  }
+  const actions = document.createElement("div");
+  actions.className = "message-actions";
+  const menuButton = document.createElement("button");
+  menuButton.type = "button";
+  menuButton.className = "message-menu-button";
+  menuButton.textContent = "⋯";
+  menuButton.setAttribute("aria-label", "Message options");
+  menuButton.setAttribute("aria-expanded", "false");
+  const menu = document.createElement("div");
+  menu.className = "message-menu hidden";
+  menuButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const willOpen = menu.classList.contains("hidden");
+    document.querySelectorAll(".message-menu").forEach((other) => other.classList.add("hidden"));
+    document.querySelectorAll(".message-menu-button").forEach((other) => other.setAttribute("aria-expanded", "false"));
+    menu.classList.toggle("hidden", !willOpen);
+    menuButton.setAttribute("aria-expanded", String(willOpen));
+  });
   const pin = document.createElement("button");
   pin.type = "button";
   pin.className = "pin-message";
   pin.textContent = pinnedItems.some((item) => item.id === id) ? "📌 Pinned" : "📌 Pin";
   pin.addEventListener("click", () => socket.emit("pin message", id));
-  box.append(pin);
+  menu.append(pin);
   const save = document.createElement("button");
   save.type = "button";
   save.className = "save-message";
@@ -146,12 +171,31 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment }) 
       renderMessages();
     } catch (error) { addSystemMessage(error.message); }
   });
-  box.append(save);
+  menu.append(save);
+  if (id) {
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "delete-message";
+    remove.textContent = attachment ? "Delete message / photo" : "Delete message";
+    remove.setAttribute("aria-label", attachment ? "Delete message and attached photo" : "Delete message");
+    remove.addEventListener("click", () => {
+      if (window.confirm(attachment ? "Delete this message and its attached file?" : "Delete this message?")) socket.emit("delete message", id);
+      menu.classList.add("hidden");
+      menuButton.setAttribute("aria-expanded", "false");
+    });
+    menu.append(remove);
+  }
+  actions.append(menuButton, menu);
+  box.append(actions);
   messagesBox.appendChild(box);
   messagesBox.scrollTop = messagesBox.scrollHeight;   // auto-scroll to newest
 }
 
 function messageKey(message) { return `${message.user}\n${message.time}\n${message.text}`; }
+document.addEventListener("click", () => {
+  document.querySelectorAll(".message-menu").forEach((menu) => menu.classList.add("hidden"));
+  document.querySelectorAll(".message-menu-button").forEach((button) => button.setAttribute("aria-expanded", "false"));
+});
 function renderMessages() {
   messagesBox.replaceChildren();
   const query = $("search-input").value.trim().toLocaleLowerCase();
@@ -275,7 +319,7 @@ socket.on("pinned messages", ({ conversation, messages }) => {
 });
 socket.on("direct opened", ({ user }) => {
   currentDirectUser = user;
-  $("conversation-title").textContent = `Direct message with ${user.name}`;
+  $("conversation-name").textContent = `Direct message with ${user.name}`;
   $("call-controls").classList.remove("hidden");
   $("search-input").value = "";
   document.querySelectorAll(".room-button").forEach((button) => button.classList.remove("active"));
@@ -298,6 +342,14 @@ socket.on("chat message", (message) => {
     else playMessageSound();
   }
 });
+socket.on("message deleted", ({ message, conversation, pinned }) => {
+  if (conversation !== currentConversation) return;
+  allMessages = allMessages.map((item) => item.id === message.id ? message : item);
+  savedItems = savedItems.filter((item) => item.id !== message.id);
+  pinnedItems = pinned;
+  renderMessages();
+  renderPinnedMessages();
+});
 socket.on("system message", addSystemMessage);
 socket.on("message error", addSystemMessage);
 
@@ -308,7 +360,7 @@ document.querySelectorAll(".room-button").forEach((button) => {
     currentConversation = button.dataset.room;
     showSavedOnly = false;
     $("saved-btn").textContent = "☆ Saved";
-    $("conversation-title").textContent = `# ${currentConversation}`;
+    $("conversation-name").textContent = `# ${currentConversation}`;
     document.querySelectorAll(".room-button").forEach((roomButton) => roomButton.classList.toggle("active", roomButton === button));
     $("search-input").value = "";
     socket.emit("join room", currentConversation);
@@ -341,16 +393,25 @@ async function resumeSupabaseSession() {
   authToken = data.session.access_token;
   const user = data.session.user;
   currentUserId = user.id;
-  username = String(user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0] || "Chatly user").slice(0, 20);
+  currentProfile = { id: user.id, email: user.email || "", name: String(user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0] || "Chatly user").slice(0, 20), avatar: user.user_metadata?.avatar_url || user.user_metadata?.picture || "" };
+  username = currentProfile.name;
   $("auth-status").textContent = `Signed in as ${user.email}`;
+  let hasSavedUsername = false;
   try {
     const response = await fetch("/api/username", { headers: { Authorization: `Bearer ${authToken}` } });
     const result = await response.json();
-    if (response.ok && result.username) username = result.username;
+    if (response.ok && result.username) { username = result.username; hasSavedUsername = true; }
   } catch {}
+  updateProfilePanel();
   $("username").value = username;
   loginScreen.classList.add("hidden");
-  usernameScreen.classList.remove("hidden");
+  if (hasSavedUsername) await enterChat();
+  else usernameScreen.classList.remove("hidden");
+}
+async function enterChat() {
+  try { await loadSavedMessages(); } catch (error) { $("username-status").textContent = error.message; }
+  socket.auth = { token: authToken };
+  if (!socket.connected) socket.connect();
 }
 $("username-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -369,9 +430,8 @@ $("username-form").addEventListener("submit", async (event) => {
     if (!response.ok) throw new Error(result.error || "Could not save that username.");
     username = result.username;
     status.textContent = "Opening your chat…";
-    try { await loadSavedMessages(); } catch (error) { status.textContent = error.message; }
-    socket.auth = { token: authToken };
-    socket.connect();
+    updateProfilePanel();
+    await enterChat();
   } catch (error) {
     status.textContent = error.message;
     submit.disabled = false;
@@ -395,6 +455,52 @@ if (supabaseClient) {
 } else {
   $("auth-status").textContent = "Add your Supabase Project URL and anon key to .env, enable Google under Supabase Auth providers, and restart the server.";
 }
+
+function updateProfilePanel() {
+  if (!currentProfile) return;
+  const avatar = createAvatar(currentProfile.name || username, currentProfile.avatar, "avatar profile-avatar");
+  avatar.id = "settings-avatar";
+  $("settings-avatar").replaceWith(avatar);
+  $("settings-username-label").textContent = username || currentProfile.name;
+  $("settings-email").textContent = currentProfile.email;
+  $("settings-username").value = username || "";
+  const profileButton = $("profile-btn");
+  profileButton.replaceChildren(createAvatar(username || currentProfile.name, currentProfile.avatar, "avatar profile-button-avatar"), document.createTextNode("Profile"));
+}
+$("profile-btn").addEventListener("click", () => { updateProfilePanel(); $("settings-status").textContent = ""; $("settings-modal").classList.remove("hidden"); });
+$("settings-close").addEventListener("click", () => $("settings-modal").classList.add("hidden"));
+$("settings-modal").addEventListener("click", (event) => { if (event.target === $("settings-modal")) $("settings-modal").classList.add("hidden"); });
+$("settings-username-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const save = $("settings-username-save");
+  const status = $("settings-status");
+  save.disabled = true;
+  status.textContent = "Saving username…";
+  try {
+    const response = await fetch("/api/username", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ username: $("settings-username").value.trim() }) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Could not save that username.");
+    username = result.username;
+    if (currentProfile) currentProfile.name = username;
+    $("me").textContent = "You are " + username;
+    updateProfilePanel();
+    status.textContent = "Username saved.";
+  } catch (error) { status.textContent = error.message; }
+  finally { save.disabled = false; }
+});
+socket.on("username updated", (name) => { username = name; if (currentProfile) currentProfile.name = name; $("me").textContent = "You are " + name; updateProfilePanel(); });
+$("signout-btn").addEventListener("click", async () => {
+  $("signout-btn").disabled = true;
+  try { if (supabaseClient) await supabaseClient.auth.signOut(); }
+  finally {
+    socket.disconnect();
+    authToken = ""; currentUserId = ""; currentProfile = null; username = ""; resumedSupabaseSession = false;
+    $("settings-modal").classList.add("hidden");
+    chatScreen.classList.add("hidden"); usernameScreen.classList.add("hidden"); loginScreen.classList.remove("hidden");
+    $("auth-status").textContent = "Signed out.";
+    $("signout-btn").disabled = false;
+  }
+});
 
 // ----- 4. Typing indicator -----
 let typingTimer;

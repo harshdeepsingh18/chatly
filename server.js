@@ -3,7 +3,7 @@ const http = require("http");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { readFileSync } = require("node:fs");
-const { appendFile, mkdir, readFile, writeFile } = require("node:fs/promises");
+const { appendFile, mkdir, readFile, unlink, writeFile } = require("node:fs/promises");
 const { Server } = require("socket.io");
 
 function loadEnvFile(file) {
@@ -108,6 +108,14 @@ app.post("/api/username", async (req, res) => {
     await writeFile(usernameFile, JSON.stringify([...next.values()], null, 2), "utf8");
     usernameRegistry = next;
     usernameByUser = new Map([...next.values()].map((entry) => [entry.id, entry.name]));
+    for (const activeSocket of io.sockets.sockets.values()) {
+      if (activeSocket.data.userId !== user.id) continue;
+      activeSocket.data.username = name;
+      const member = users.get(activeSocket.id);
+      if (member) users.set(activeSocket.id, { ...member, name });
+      activeSocket.emit("username updated", name);
+    }
+    sendUserList();
     return name;
   });
   usernameQueue = operation.catch(() => {});
@@ -333,6 +341,45 @@ io.on("connection", (socket) => {
       const recipientId = conversation.split(":").slice(1).find((id) => id !== socket.data.userId);
       io.to(`user:${recipientId}`).emit("direct notification", { conversation, fromId: socket.data.userId, fromName: member.name });
     }
+  });
+
+  socket.on("delete message", async (messageId) => {
+    if (typeof messageId !== "string" || messageId.length > 100) return;
+    const message = messages.find((item) => item.id === messageId);
+    if (!message || message.deleted || message.conversation !== socket.data.activeConversation || !canAccessConversation(message.conversation, socket.data.userId)) return;
+    const conversation = message.conversation;
+    const deleter = users.get(socket.id);
+    if (!deleter) return;
+    const tombstone = {
+      id: message.id, conversation, user: deleter.name, senderId: socket.data.userId,
+      text: "This message was deleted.", time: message.time, avatar: deleter.avatar || "",
+      deleted: true, deletedAt: Date.now()
+    };
+    const nextMessages = messages.map((item) => item.id === messageId ? tombstone : item);
+    const nextPins = { ...pinnedMessages, [conversation]: (pinnedMessages[conversation] || []).filter((id) => id !== messageId) };
+    const nextSaved = Object.fromEntries(Object.entries(savedMessages).map(([ownerId, items]) => [ownerId, items.filter((item) => item.id !== messageId)]));
+    const attachmentId = message.attachment?.id;
+    const attachmentStillUsed = attachmentId && nextMessages.some((item) => item.attachment?.id === attachmentId);
+    try {
+      const operation = persistenceQueue.then(async () => {
+        await writeFile(messageFile, nextMessages.map((item) => JSON.stringify(item)).join("\n") + (nextMessages.length ? "\n" : ""), "utf8");
+        await writeFile(pinsFile, JSON.stringify(nextPins), "utf8");
+        await writeFile(savedFile, JSON.stringify(nextSaved), "utf8");
+        if (attachmentId && !attachmentStillUsed) {
+          const nextUploads = { ...uploads };
+          delete nextUploads[attachmentId];
+          await writeFile(uploadsFile, JSON.stringify(nextUploads), "utf8");
+          try { await unlink(path.join(uploadDirectory, attachmentId)); } catch (error) { if (error.code !== "ENOENT") throw error; }
+          uploads = nextUploads;
+        }
+        messages = nextMessages;
+        pinnedMessages = nextPins;
+        savedMessages = nextSaved;
+      });
+      persistenceQueue = operation.catch((error) => console.error("Could not delete chat message:", error));
+      await operation;
+      io.to(conversation).emit("message deleted", { message: tombstone, conversation, pinned: conversationPins(conversation) });
+    } catch { socket.emit("message error", "Could not delete this message. Please try again."); }
   });
 
   socket.on("pin message", (messageId) => {

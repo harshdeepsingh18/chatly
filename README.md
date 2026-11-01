@@ -71,13 +71,13 @@ Copy-Item .env.example .env
 npm start
 ```
 
-The **Continue with Google** button uses Supabase OAuth. First-time Google sign-ins create a Supabase user automatically; returning users sign in to the same account. After sign-in, choose a username. Names are unique regardless of capitalization and stay reserved to that account across restarts in `data/usernames.json`. The chat server verifies both the Supabase session and the account's username before accepting a Socket.IO connection. The same session authorizes private saved-message requests. Keep the `data` directory persistent. Never put a Supabase service-role key in the browser or in these environment variables; the anon/public key is intended for client use.
+The **Continue with Google** button uses Supabase OAuth. First-time Google sign-ins create a Supabase user automatically; returning users sign in to the same account. Choose a unique username after the first sign-in; it stays reserved to that account across restarts in `data/usernames.json`, and returning users go straight to chat. Open **Profile** in the app to view the Google account email, change the username, or sign out. The chat server verifies both the Supabase session and the account's username before accepting a Socket.IO connection. The same session authorizes private saved-message requests. Keep the `data` directory persistent. Never put a Supabase service-role key in the browser or in these environment variables; the anon/public key is intended for client use.
 
 ## Rooms, direct messages, and files
 
 Chat history is separated into `#general`, `#doubts`, and `#notes`. Click an online username to open a private one-to-one conversation. Upload images, PDFs, text files, and DOCX notes up to 12 MB. Uploads, message history, saved messages, and pins are stored in `data/`; keep this folder persistent and backed up.
 
-Use the search field to filter the open conversation. Pin messages to keep them at the top of that conversation. Message sounds play for new messages, and unread messages update the browser tab title.
+Use the search field to filter the open conversation. Pin messages to keep them at the top of that conversation. Delete messages with the three-dot menu; the chat shows who deleted them, and deleting a message with an attachment also deletes its uploaded file. Message sounds play for new messages, and unread messages update the browser tab title.
 
 ## Voice and video calls
 
