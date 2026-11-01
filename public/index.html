@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chatly</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- LOGIN SCREEN -->
+  <section id="login" class="screen">
+    <form id="login-form" class="login-card">
+      <h1>Chatly</h1>
+      <p>Pick a name and start talking.</p>
+      <input id="username" type="text" maxlength="20" placeholder="Your name" autocomplete="off" required>
+      <button type="submit">Join chat</button>
+    </form>
+  </section>
+
+  <!-- CHAT SCREEN -->
+  <section id="chat" class="screen hidden">
+    <aside id="sidebar">
+      <h2>Online <span id="online-count">0</span></h2>
+      <ul id="user-list"></ul>
+    </aside>
+
+    <main>
+      <header>
+        <button id="menu-btn" aria-label="Show online users">☰</button>
+        <div class="title">
+          <strong>Chatly</strong>
+          <small id="me"></small>
+        </div>
+        <button id="theme-btn" aria-label="Switch light or dark mode">🌙</button>
+      </header>
+
+      <div id="messages" aria-live="polite"></div>
+      <div id="typing"></div>
+
+      <form id="message-form">
+        <div id="emoji-panel" class="hidden"></div>
+        <button type="button" id="emoji-btn" aria-label="Add emoji">😊</button>
+        <input id="message-input" type="text" placeholder="Type a message" autocomplete="off">
+        <button type="submit" id="send-btn" aria-label="Send">Send</button>
+      </form>
+    </main>
+  </section>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
