@@ -26,6 +26,7 @@ const io = new Server(server);
 const dataDirectory = path.join(__dirname, "data");
 const messageFile = path.join(dataDirectory, "messages.jsonl");
 const savedFile = path.join(dataDirectory, "saved-messages.json");
+const usernameFile = path.join(dataDirectory, "usernames.json");
 const supabaseUrl = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "";
 
@@ -38,6 +39,9 @@ app.get("/config.js", (_req, res) => {
 
 let savedMessages = {};
 let savedQueue = Promise.resolve();
+let usernameRegistry = new Map();
+let usernameByUser = new Map();
+let usernameQueue = Promise.resolve();
 async function getSupabaseUser(req) {
   const token = req.get("authorization")?.replace(/^Bearer\s+/i, "");
   return getSupabaseUserForToken(token);
@@ -53,8 +57,44 @@ async function getSupabaseUserForToken(token) {
 io.use(async (socket, next) => {
   const user = await getSupabaseUserForToken(socket.handshake.auth?.token);
   if (!user) return next(new Error("Google sign-in is required to join Chatly."));
+  const username = usernameByUser.get(user.id);
+  if (!username) return next(new Error("Choose a username before joining Chatly."));
   socket.data.authenticatedUser = user;
+  socket.data.username = username;
   next();
+});
+app.get("/api/username", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in with Google first." });
+  res.json({ username: usernameByUser.get(user.id) || "" });
+});
+app.post("/api/username", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in with Google first." });
+  const name = String(req.body?.username || "").trim().replace(/\s+/g, " ");
+  if (!name || name.length > 20 || /[\r\n\u0000-\u001f]/.test(name)) {
+    return res.status(400).json({ error: "Choose a username between 1 and 20 characters." });
+  }
+  const operation = usernameQueue.then(async () => {
+    const key = name.toLocaleLowerCase();
+    const currentOwner = usernameRegistry.get(key);
+    if (currentOwner && currentOwner.id !== user.id) {
+      const error = new Error("That username is already taken. Please choose another.");
+      error.status = 409;
+      throw error;
+    }
+    const next = new Map(usernameRegistry);
+    const previous = usernameByUser.get(user.id);
+    if (previous && previous.toLocaleLowerCase() !== key) next.delete(previous.toLocaleLowerCase());
+    next.set(key, { id: user.id, name });
+    await writeFile(usernameFile, JSON.stringify([...next.values()], null, 2), "utf8");
+    usernameRegistry = next;
+    usernameByUser = new Map([...next.values()].map((entry) => [entry.id, entry.name]));
+    return name;
+  });
+  usernameQueue = operation.catch(() => {});
+  try { res.json({ username: await operation }); }
+  catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : "Could not save username." }); }
 });
 app.get("/api/saved-messages", async (req, res) => {
   const user = await getSupabaseUser(req);
@@ -100,6 +140,11 @@ async function loadMessages() {
   });
   try { savedMessages = JSON.parse(await readFile(savedFile, "utf8")); }
   catch (error) { if (error.code !== "ENOENT") throw error; }
+  try {
+    const entries = JSON.parse(await readFile(usernameFile, "utf8"));
+    usernameRegistry = new Map(entries.map((entry) => [entry.name.toLocaleLowerCase(), entry]));
+    usernameByUser = new Map(entries.map((entry) => [entry.id, entry.name]));
+  } catch (error) { if (error.code !== "ENOENT") throw error; }
 }
 
 function persistMessage(message) {
@@ -119,8 +164,7 @@ function sendUserList() {
 io.on("connection", (socket) => {
   // 1. Someone logs in
   socket.on("user joined", () => {
-    const authenticatedUser = socket.data.authenticatedUser;
-    const name = String(authenticatedUser.user_metadata?.full_name || authenticatedUser.user_metadata?.name || authenticatedUser.email?.split("@")[0] || "Chatly user").trim().slice(0, 20);
+    const name = socket.data.username;
     if (users.has(socket.id)) return;
 
     users.set(socket.id, name);

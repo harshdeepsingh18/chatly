@@ -34,6 +34,7 @@ input { font: inherit; color: inherit; }
 
 /* ---------- Login ---------- */
 #login { display: grid; place-items: center; height: 100%; padding: 1rem; }
+#username-screen { display: grid; place-items: center; height: 100%; padding: 1rem; }
 .login-card {
   width: min(380px, 100%); background: var(--panel);
   padding: 2rem; border-radius: 18px; border: 1px solid var(--line);
@@ -55,6 +56,8 @@ input { font: inherit; color: inherit; }
 #google-fallback { width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font-weight: 600; }
 #google-fallback:hover { background: var(--bg); }
 #auth-status { min-height: 1.2rem; font-size: 0.85rem; overflow-wrap: anywhere; }
+#username-status { min-height: 1.2rem; font-size: 0.85rem; overflow-wrap: anywhere; }
+.login-card button:disabled { opacity: 0.65; cursor: wait; }
 
 /* ---------- Chat layout ---------- */
 #chat { display: flex; height: 100%; }

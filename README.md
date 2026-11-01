@@ -15,6 +15,7 @@ Start the app by following the setup steps below, then open [Chatly](http://loca
 - Online user list and typing indicators
 - Emoji picker
 - Google sign-in and sign-up through Supabase Auth
+- Unique usernames reserved per account
 - Account-specific saved messages
 - Light and dark themes
 - Responsive layout for mobile and desktop
@@ -57,4 +58,4 @@ Copy-Item .env.example .env
 npm start
 ```
 
-The **Continue with Google** button uses Supabase OAuth. First-time Google sign-ins create a Supabase user automatically; returning users sign in to the same account. The chat server verifies the Supabase session before accepting a Socket.IO connection, and the same session authorizes private saved-message requests. Keep the `data` directory persistent. Never put a Supabase service-role key in the browser or in these environment variables; the anon/public key is intended for client use.
+The **Continue with Google** button uses Supabase OAuth. First-time Google sign-ins create a Supabase user automatically; returning users sign in to the same account. After sign-in, choose a username. Names are unique regardless of capitalization and stay reserved to that account across restarts in `data/usernames.json`. The chat server verifies both the Supabase session and the account's username before accepting a Socket.IO connection. The same session authorizes private saved-message requests. Keep the `data` directory persistent. Never put a Supabase service-role key in the browser or in these environment variables; the anon/public key is intended for client use.

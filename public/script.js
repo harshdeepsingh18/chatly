@@ -11,6 +11,7 @@ let supabaseClient = window.CHATLY_SUPABASE_URL && window.CHATLY_SUPABASE_ANON_K
 // ----- Grab page elements -----
 const $ = (id) => document.getElementById(id);
 const loginScreen = $("login");
+const usernameScreen = $("username-screen");
 const chatScreen = $("chat");
 const messagesBox = $("messages");
 const input = $("message-input");
@@ -23,13 +24,16 @@ socket.on("connect", () => {
   socket.emit("user joined");
   $("me").textContent = "You are " + username;
   loginScreen.classList.add("hidden");
+  usernameScreen.classList.add("hidden");
   chatScreen.classList.remove("hidden");
   input.focus();
 });
 socket.on("connect_error", (error) => {
-  loginScreen.classList.remove("hidden");
+  loginScreen.classList.add("hidden");
+  usernameScreen.classList.remove("hidden");
   chatScreen.classList.add("hidden");
-  $("auth-status").textContent = error.message || "Please sign in with Google to open Chatly.";
+  $("username-submit").disabled = false;
+  $("username-status").textContent = error.message || "Could not join Chatly. Please try again.";
 });
 
 // ----- 2. Sending messages -----
@@ -132,10 +136,40 @@ async function resumeSupabaseSession() {
   const user = data.session.user;
   username = String(user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0] || "Chatly user").slice(0, 20);
   $("auth-status").textContent = `Signed in as ${user.email}`;
-  try { await loadSavedMessages(); } catch (error) { $("auth-status").textContent = error.message; }
-  socket.auth = { token: authToken };
-  socket.connect();
+  try {
+    const response = await fetch("/api/username", { headers: { Authorization: `Bearer ${authToken}` } });
+    const result = await response.json();
+    if (response.ok && result.username) username = result.username;
+  } catch {}
+  $("username").value = username;
+  loginScreen.classList.add("hidden");
+  usernameScreen.classList.remove("hidden");
 }
+$("username-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const chosenName = $("username").value.trim();
+  const status = $("username-status");
+  const submit = $("username-submit");
+  submit.disabled = true;
+  status.textContent = "Checking username…";
+  try {
+    const response = await fetch("/api/username", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ username: chosenName })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Could not save that username.");
+    username = result.username;
+    status.textContent = "Opening your chat…";
+    try { await loadSavedMessages(); } catch (error) { status.textContent = error.message; }
+    socket.auth = { token: authToken };
+    socket.connect();
+  } catch (error) {
+    status.textContent = error.message;
+    submit.disabled = false;
+  }
+});
 $("google-fallback").addEventListener("click", async () => {
   if (!supabaseClient) {
     $("auth-status").textContent = "Supabase is not configured. Copy .env.example to .env, add your Supabase Project URL and anon key, then restart the server.";

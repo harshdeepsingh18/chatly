@@ -20,6 +20,17 @@
     </div>
   </section>
 
+  <!-- USERNAME SCREEN -->
+  <section id="username-screen" class="screen hidden">
+    <form id="username-form" class="login-card">
+      <h1>Choose your username</h1>
+      <p>Your name must be unique. Other people in the chat will see it.</p>
+      <input id="username" type="text" maxlength="20" placeholder="Username" autocomplete="nickname" required>
+      <button id="username-submit" type="submit">Continue to chat</button>
+      <p id="username-status" role="status"></p>
+    </form>
+  </section>
+
   <!-- CHAT SCREEN -->
   <section id="chat" class="screen hidden">
     <aside id="sidebar">
