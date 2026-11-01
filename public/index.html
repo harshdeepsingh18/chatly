@@ -15,6 +15,11 @@
       <p>Pick a name and start talking.</p>
       <input id="username" type="text" maxlength="20" placeholder="Your name" autocomplete="off" required>
       <button type="submit">Join chat</button>
+      <div class="divider"><span>or</span></div>
+      <div id="google-signin">
+        <button id="google-fallback" type="button">Continue with Google</button>
+      </div>
+      <p id="auth-status" role="status"></p>
     </form>
   </section>
 
@@ -32,6 +37,7 @@
           <strong>Chatly</strong>
           <small id="me"></small>
         </div>
+        <button id="saved-btn" type="button" aria-pressed="false">☆ Saved</button>
         <button id="theme-btn" aria-label="Switch light or dark mode">🌙</button>
       </header>
 
@@ -47,6 +53,8 @@
     </main>
   </section>
 
+  <script src="/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="script.js"></script>
 </body>
