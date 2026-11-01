@@ -38,4 +38,6 @@ alter table public.chatly_app_state enable row level security;
 
 insert into storage.buckets (id, name, public, file_size_limit)
 values ('chatly-uploads', 'chatly-uploads', false, 12582912)
-on conflict (id) do nothing;
+on conflict (id) do update
+set public = false,
+    file_size_limit = excluded.file_size_limit;

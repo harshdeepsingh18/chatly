@@ -88,10 +88,6 @@ function createSupabaseStore({ url, serviceKey, dataDirectory }) {
     });
   }
 
-  async function ensureConversation(conversation) {
-    await ensureConversations([conversation]);
-  }
-
   async function upsertMessages(records) {
     const conversations = [...new Set(records.map((message) => message.conversation).filter(Boolean))];
     await ensureConversations(conversations);
@@ -223,10 +219,6 @@ function createSupabaseStore({ url, serviceKey, dataDirectory }) {
     async unlink(file) {
       if (enabled && path.resolve(file).startsWith(`${uploadDirectory}${path.sep}`)) return removeUpload(file);
       return unlinkLocal(file);
-    },
-    async ensureConversation(conversation) {
-      if (!enabled) return;
-      await ensureConversation(conversation);
     },
     async deleteMessage(messageId) {
       if (!enabled) return;

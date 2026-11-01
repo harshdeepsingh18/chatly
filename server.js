@@ -80,7 +80,13 @@ app.get("/config.js", (_req, res) => {
 app.get("/socket.io/socket.io.js", (_req, res) => res.sendFile(require.resolve("socket.io/client-dist/socket.io.js")));
 let initializationPromise;
 function initializeStorage() {
-  if (!initializationPromise) initializationPromise = loadMessages();
+  if (!initializationPromise) {
+    if ((process.env.NODE_ENV === "production" || process.env.VERCEL) && (!supabaseStore.enabled || !supabaseUrl || !supabaseAnonKey)) {
+      initializationPromise = Promise.reject(new Error("Production requires SUPABASE_URL, SUPABASE_ANON_KEY, and server-only SUPABASE_SERVICE_ROLE_KEY; local files are not writable there."));
+    } else {
+      initializationPromise = loadMessages();
+    }
+  }
   return initializationPromise;
 }
 app.use((req, res, next) => {
