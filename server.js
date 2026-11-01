@@ -1,8 +1,24 @@
 const express = require("express");
 const http = require("http");
 const path = require("node:path");
+const { readFileSync } = require("node:fs");
 const { appendFile, mkdir, readFile, writeFile } = require("node:fs/promises");
 const { Server } = require("socket.io");
+
+function loadEnvFile(file) {
+  let contents;
+  try { contents = readFileSync(file, "utf8"); }
+  catch (error) { if (error.code === "ENOENT") return; throw error; }
+  for (const line of contents.split(/\r?\n/)) {
+    const match = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (!match || Object.hasOwn(process.env, match[1])) continue;
+    let value = match[2];
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
+    else value = value.replace(/\s+#.*$/, "");
+    process.env[match[1]] = value;
+  }
+}
+loadEnvFile(path.join(__dirname, ".env"));
 
 const app = express();
 const server = http.createServer(app);
@@ -23,15 +39,23 @@ app.get("/config.js", (_req, res) => {
 let savedMessages = {};
 let savedQueue = Promise.resolve();
 async function getSupabaseUser(req) {
-  if (!supabaseUrl || !supabaseAnonKey) return null;
   const token = req.get("authorization")?.replace(/^Bearer\s+/i, "");
-  if (!token) return null;
+  return getSupabaseUserForToken(token);
+}
+async function getSupabaseUserForToken(token) {
+  if (!supabaseUrl || !supabaseAnonKey || !token) return null;
   try {
     const response = await fetch(`${supabaseUrl}/auth/v1/user`, { headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${token}` } });
     if (!response.ok) return null;
     return await response.json();
   } catch { return null; }
 }
+io.use(async (socket, next) => {
+  const user = await getSupabaseUserForToken(socket.handshake.auth?.token);
+  if (!user) return next(new Error("Google sign-in is required to join Chatly."));
+  socket.data.authenticatedUser = user;
+  next();
+});
 app.get("/api/saved-messages", async (req, res) => {
   const user = await getSupabaseUser(req);
   if (!user) return res.status(401).json({ error: "Sign in to view saved messages." });
@@ -94,9 +118,10 @@ function sendUserList() {
 
 io.on("connection", (socket) => {
   // 1. Someone logs in
-  socket.on("user joined", (name) => {
-    name = String(name || "").trim().slice(0, 20);
-    if (!name) return;
+  socket.on("user joined", () => {
+    const authenticatedUser = socket.data.authenticatedUser;
+    const name = String(authenticatedUser.user_metadata?.full_name || authenticatedUser.user_metadata?.name || authenticatedUser.email?.split("@")[0] || "Chatly user").trim().slice(0, 20);
+    if (users.has(socket.id)) return;
 
     users.set(socket.id, name);
     io.emit("system message", name + " joined the chat");

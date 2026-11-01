@@ -10,17 +10,14 @@
 
   <!-- LOGIN SCREEN -->
   <section id="login" class="screen">
-    <form id="login-form" class="login-card">
+    <div id="login-card" class="login-card">
       <h1>Chatly</h1>
-      <p>Pick a name and start talking.</p>
-      <input id="username" type="text" maxlength="20" placeholder="Your name" autocomplete="off" required>
-      <button type="submit">Join chat</button>
-      <div class="divider"><span>or</span></div>
+      <p>Sign in with Google to open the chat.</p>
       <div id="google-signin">
         <button id="google-fallback" type="button">Continue with Google</button>
       </div>
       <p id="auth-status" role="status"></p>
-    </form>
+    </div>
   </section>
 
   <!-- CHAT SCREEN -->

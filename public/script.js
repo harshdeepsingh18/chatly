@@ -1,5 +1,5 @@
 // Connects to the Socket.IO server that serves this page
-const socket = io();
+const socket = io({ autoConnect: false });
 let username = "";
 let authToken = "";
 let savedItems = [];
@@ -18,17 +18,18 @@ const typingBox = $("typing");
 const sidebar = $("sidebar");
 const emojiPanel = $("emoji-panel");
 
-// ----- 1. Login -----
-$("login-form").addEventListener("submit", (e) => {
-  e.preventDefault();
-  username = $("username").value.trim();
-  if (!username) return;
-
-  socket.emit("user joined", username);   // tell the server who joined
+// ----- 1. Authenticated entry -----
+socket.on("connect", () => {
+  socket.emit("user joined");
   $("me").textContent = "You are " + username;
   loginScreen.classList.add("hidden");
   chatScreen.classList.remove("hidden");
   input.focus();
+});
+socket.on("connect_error", (error) => {
+  loginScreen.classList.remove("hidden");
+  chatScreen.classList.add("hidden");
+  $("auth-status").textContent = error.message || "Please sign in with Google to open Chatly.";
 });
 
 // ----- 2. Sending messages -----
@@ -121,47 +122,6 @@ $("saved-btn").addEventListener("click", () => {
   renderMessages();
 });
 
-async function handleGoogleCredential(response) {
-  const status = $("auth-status");
-  status.textContent = "Signing in…";
-  try {
-    const result = await fetch("/api/auth/google", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ credential: response.credential }) });
-    const data = await result.json();
-    if (!result.ok) throw new Error(data.error || "Google sign-in failed.");
-    authToken = data.token;
-    $("username").value = data.user.name;
-    status.textContent = `Signed in as ${data.user.email}`;
-    await loadSavedMessages();
-    $("login-form").requestSubmit();
-  } catch (error) { status.textContent = error.message; }
-}
-let googleSignInInitialized = false;
-function initializeGoogleSignIn() {
-  if (googleSignInInitialized) return;
-  const fallback = $("google-fallback");
-  if (!window.CHATLY_GOOGLE_CLIENT_ID) {
-    $("auth-status").textContent = "Google sign-in needs GOOGLE_CLIENT_ID set on the server.";
-    return;
-  }
-  if (!window.google?.accounts?.id) {
-    $("auth-status").textContent = "Loading Google sign-in…";
-    return;
-  }
-  window.google.accounts.id.initialize({ client_id: window.CHATLY_GOOGLE_CLIENT_ID, callback: handleGoogleCredential });
-  fallback?.remove();
-  window.google.accounts.id.renderButton($("google-signin"), { theme: "outline", size: "large", text: "continue_with", shape: "rectangular", width: 300 });
-  googleSignInInitialized = true;
-}
-window.addEventListener("load", initializeGoogleSignIn);
-const googleInitTimer = setInterval(() => {
-  initializeGoogleSignIn();
-  if (!$("google-fallback") || !window.CHATLY_GOOGLE_CLIENT_ID) clearInterval(googleInitTimer);
-}, 300);
-$("google-fallback").addEventListener("click", () => {
-  $("auth-status").textContent = window.CHATLY_GOOGLE_CLIENT_ID
-    ? "Google sign-in is still loading. Check your connection and refresh the page."
-    : "To enable Google sign-in, set GOOGLE_CLIENT_ID in the server environment and restart Chatly. See README.md.";
-});
 let resumedSupabaseSession = false;
 async function resumeSupabaseSession() {
   if (!supabaseClient || resumedSupabaseSession) return;
@@ -170,14 +130,15 @@ async function resumeSupabaseSession() {
   resumedSupabaseSession = true;
   authToken = data.session.access_token;
   const user = data.session.user;
-  $("username").value = String(user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0] || "Chatly user").slice(0, 20);
+  username = String(user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0] || "Chatly user").slice(0, 20);
   $("auth-status").textContent = `Signed in as ${user.email}`;
   try { await loadSavedMessages(); } catch (error) { $("auth-status").textContent = error.message; }
-  $("login-form").requestSubmit();
+  socket.auth = { token: authToken };
+  socket.connect();
 }
 $("google-fallback").addEventListener("click", async () => {
   if (!supabaseClient) {
-    $("auth-status").textContent = "Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY on the server.";
+    $("auth-status").textContent = "Supabase is not configured. Copy .env.example to .env, add your Supabase Project URL and anon key, then restart the server.";
     return;
   }
   $("auth-status").textContent = "Redirecting to Google…";
@@ -187,11 +148,11 @@ $("google-fallback").addEventListener("click", async () => {
 if (supabaseClient) {
   supabaseClient.auth.onAuthStateChange((_event, session) => {
     authToken = session?.access_token || "";
-    if (session) resumeSupabaseSession();
+    if (authToken) socket.auth = { token: authToken };
   });
   resumeSupabaseSession();
 } else {
-  $("auth-status").textContent = "Connect Supabase and enable Google in its Auth settings to sign in.";
+  $("auth-status").textContent = "Add your Supabase Project URL and anon key to .env, enable Google under Supabase Auth providers, and restart the server.";
 }
 
 // ----- 4. Typing indicator -----

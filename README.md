@@ -1,6 +1,6 @@
 # Chatly
 
-Chatly is a real-time chat website built with Node.js, Express, and Socket.IO. Join with a username to chat with other people currently connected to the same server.
+Chatly is a real-time chat website built with Node.js, Express, and Socket.IO. Sign in with Google through Supabase to access the chat.
 
 ## Open the website
 
@@ -14,7 +14,8 @@ Start the app by following the setup steps below, then open [Chatly](http://loca
 - Saved chat history shared with users and restored after server restarts
 - Online user list and typing indicators
 - Emoji picker
-- Google sign-in and account-specific saved messages
+- Google sign-in and sign-up through Supabase Auth
+- Account-specific saved messages
 - Light and dark themes
 - Responsive layout for mobile and desktop
 
@@ -41,16 +42,19 @@ The server uses port `3000` by default. Set the `PORT` environment variable to u
 
 Chat messages are stored on the server in `data/messages.jsonl`. The file and folder are created automatically when the server starts. Messages are shared with everyone who joins and are kept across restarts. Back up this file if you want to preserve the chat history when moving the app to another server.
 
-Signed-in users can save individual messages with the **Save** button. Bookmarks are private to each Google account and stored in `data/saved-messages.json`.
+Signed-in users can save individual messages with the **Save** button. Bookmarks are private to each Supabase account and stored in `data/saved-messages.json`.
 
-## Google sign-in
+## Supabase Google sign-in and sign-up
 
-Create a **Web application** OAuth client in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials), enable Google Identity Services for it, and add the app origin (for local development, `http://localhost:3000`) to **Authorized JavaScript origins**. Set the client ID before starting the server:
+1. Create a Supabase project and copy its **Project URL** and **anon/public key** from **Project Settings → API**.
+2. In **Authentication → Providers → Google**, enable Google and enter the OAuth client ID and secret from a Google Cloud **Web application** credential. Add the callback URL shown by Supabase to the OAuth client's **Authorized redirect URIs**.
+3. In Supabase **Authentication → URL Configuration**, set the Site URL to `http://localhost:3000` and add it to the allowed redirect URLs. Use your deployed site URL when deploying.
+4. Copy `.env.example` to `.env`, replace the placeholders with your Supabase Project URL and anon/public key, and restart Chatly:
 
 ```powershell
-$env:GOOGLE_CLIENT_ID = "your-client-id.apps.googleusercontent.com"
-$env:SESSION_SECRET = "a-long-random-secret"
+Copy-Item .env.example .env
+# Edit .env and enter your actual Supabase values
 npm start
 ```
 
-Google sign-in also acts as account creation for new Google users. The server verifies each Google credential and keeps the sign-in session for seven days. Use a long, private `SESSION_SECRET` in deployment and keep the `data` directory persistent.
+The **Continue with Google** button uses Supabase OAuth. First-time Google sign-ins create a Supabase user automatically; returning users sign in to the same account. The chat server verifies the Supabase session before accepting a Socket.IO connection, and the same session authorizes private saved-message requests. Keep the `data` directory persistent. Never put a Supabase service-role key in the browser or in these environment variables; the anon/public key is intended for client use.
