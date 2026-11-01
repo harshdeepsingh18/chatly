@@ -290,7 +290,10 @@ app.get("/api/saved-messages", async (req, res) => {
   const user = await getSupabaseUser(req);
   if (!user) return res.status(401).json({ error: "Sign in to view saved messages." });
   const liveMessages = new Map(messages.map((message) => [message.id, message]));
-  res.json((savedMessages[user.id] || []).map((message) => ({ ...message, reactions: liveMessages.get(message.id)?.reactions || messageReactions[message.id] || {} })));
+  res.json((savedMessages[user.id] || []).map((message) => {
+    const reactions = liveMessages.get(message.id)?.reactions || messageReactions[message.id] || {};
+    return { ...message, reactions, reactionNames: reactionNamesFor(reactions) };
+  }));
 });
 app.post("/api/saved-messages", async (req, res) => {
   const user = await getSupabaseUser(req);
@@ -321,10 +324,16 @@ function conversationPins(conversation) {
   const ids = new Set(pinnedMessages[conversation] || []);
   return messages.filter((message) => message.conversation === conversation && ids.has(message.id));
 }
+function reactionNamesFor(reactions = {}) {
+  return Object.fromEntries(Object.entries(reactions).map(([emoji, userIds]) => [
+    emoji, userIds.map((id) => usernameByUser.get(id) || "Chatly member")
+  ]));
+}
 
 const allowedFileTypes = new Set([
   "image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf",
-  "text/plain", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  "text/plain", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/wav", "audio/x-wav", "audio/aac"
 ]);
 app.post("/api/uploads", express.raw({ type: "application/octet-stream", limit: "12mb" }), async (req, res) => {
   const user = await getSupabaseUser(req);
@@ -332,7 +341,7 @@ app.post("/api/uploads", express.raw({ type: "application/octet-stream", limit: 
   const conversation = req.get("x-chat-conversation") || "";
   if (!canAccessConversation(conversation, user.id)) return res.status(400).json({ error: "Choose a room or direct chat first." });
   const type = String(req.get("x-file-type") || "application/octet-stream").toLowerCase();
-  if (!allowedFileTypes.has(type)) return res.status(415).json({ error: "Use an image, PDF, text file, or DOCX document." });
+  if (!allowedFileTypes.has(type)) return res.status(415).json({ error: "Use an image, PDF, text file, DOCX document, or audio recording." });
   const buffer = req.body;
   if (!Buffer.isBuffer(buffer) || !buffer.length) return res.status(400).json({ error: "The selected file is empty." });
   const encodedName = req.get("x-file-name") || "attachment";
@@ -359,7 +368,7 @@ app.get("/api/uploads/:id", async (req, res) => {
   const file = uploads[req.params.id];
   if (!file || !canAccessConversation(file.conversation, user.id)) return res.sendStatus(404);
   res.set("X-Content-Type-Options", "nosniff");
-  res.set("Content-Disposition", `${file.type.startsWith("image/") || file.type === "application/pdf" ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(file.name)}`);
+  res.set("Content-Disposition", `${file.type.startsWith("image/") || file.type.startsWith("audio/") || file.type === "application/pdf" ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(file.name)}`);
   res.type(file.type).sendFile(path.join(uploadDirectory, file.id));
 });
 
@@ -431,7 +440,7 @@ function sendConversation(socket, conversation) {
   socket.join(conversation);
   socket.emit("conversation history", {
     conversation,
-    messages: messages.filter((message) => message.conversation === conversation),
+    messages: messages.filter((message) => message.conversation === conversation).map((message) => ({ ...message, reactionNames: reactionNamesFor(message.reactions) })),
     pinned: conversationPins(conversation)
   });
 }
@@ -578,10 +587,10 @@ io.on("connection", (socket) => {
     if (typeof messageId !== "string" || !allowedEmojis.has(emoji) || deletingMessages.has(messageId)) return;
     const initial = messages.find((item) => item.id === messageId);
     const conversation = socket.data.activeConversation;
-    if (!initial || initial.deleted || initial.conversation !== conversation || !canAccessConversation(conversation, socket.data.userId)) return;
+    if (!initial || initial.deleted || initial.conversation !== conversation || initial.senderId === socket.data.userId || (!initial.senderId && initial.user === socket.data.username) || !canAccessConversation(conversation, socket.data.userId)) return;
     const operation = reactionQueue.then(async () => {
       const message = messages.find((item) => item.id === messageId);
-      if (!message || message.deleted || message.conversation !== socket.data.activeConversation || !canAccessConversation(message.conversation, socket.data.userId)) return;
+      if (!message || message.deleted || message.conversation !== socket.data.activeConversation || message.senderId === socket.data.userId || (!message.senderId && message.user === socket.data.username) || !canAccessConversation(message.conversation, socket.data.userId)) return;
       const nextMessageReactions = { ...(messageReactions[messageId] || message.reactions || {}) };
       const users = new Set(nextMessageReactions[emoji] || []);
       users.has(socket.data.userId) ? users.delete(socket.data.userId) : users.add(socket.data.userId);
@@ -593,7 +602,7 @@ io.on("connection", (socket) => {
       await writeFile(reactionsFile, JSON.stringify(nextAllReactions), "utf8");
       messageReactions = nextAllReactions;
       message.reactions = nextMessageReactions;
-      io.to(conversation).emit("message reactions", { id: messageId, conversation, reactions: nextMessageReactions });
+      io.to(conversation).emit("message reactions", { id: messageId, conversation, reactions: nextMessageReactions, reactionNames: reactionNamesFor(nextMessageReactions) });
     });
     reactionQueue = operation.catch((error) => console.error("Could not save message reaction:", error));
     try { await operation; }

@@ -57,6 +57,58 @@ socket.on("connect_error", (error) => {
 });
 
 // ----- 2. Sending messages -----
+let voiceRecorder = null;
+let voiceStream = null;
+let voiceChunks = [];
+const voiceMessageButton = $("voice-message-btn");
+voiceMessageButton.addEventListener("click", async () => {
+  if (voiceRecorder?.state === "recording") {
+    voiceRecorder.stop();
+    voiceMessageButton.disabled = true;
+    voiceMessageButton.textContent = "…";
+    voiceMessageButton.title = "Finishing recording";
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    addSystemMessage("Voice recording is not supported in this browser. Try a current browser over HTTPS.");
+    return;
+  }
+  if (!authToken || !currentConversation) {
+    addSystemMessage("Sign in and open a chat before recording a voice message.");
+    return;
+  }
+  try {
+    voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"].find((type) => MediaRecorder.isTypeSupported(type));
+    voiceRecorder = new MediaRecorder(voiceStream, mimeType ? { mimeType } : undefined);
+    voiceChunks = [];
+    voiceRecorder.addEventListener("dataavailable", (event) => { if (event.data.size) voiceChunks.push(event.data); });
+    voiceRecorder.addEventListener("stop", () => {
+      const type = (voiceRecorder.mimeType || voiceChunks[0]?.type || "audio/webm").split(";")[0];
+      const extension = type.includes("ogg") ? "ogg" : type.includes("mp4") ? "m4a" : "webm";
+      selectedFile = new File(voiceChunks, `voice-message-${Date.now()}.${extension}`, { type });
+      voiceStream?.getTracks().forEach((track) => track.stop());
+      voiceStream = null;
+      voiceRecorder = null;
+      voiceChunks = [];
+      voiceMessageButton.disabled = false;
+      voiceMessageButton.textContent = "🎙";
+      voiceMessageButton.classList.remove("recording");
+      voiceMessageButton.setAttribute("aria-label", "Record voice message");
+      voiceMessageButton.title = "Recording ready — send voice message";
+      $("message-form").requestSubmit();
+    }, { once: true });
+    voiceRecorder.start();
+    voiceMessageButton.classList.add("recording");
+    voiceMessageButton.textContent = "■";
+    voiceMessageButton.setAttribute("aria-label", "Stop and send recording");
+    voiceMessageButton.title = "Recording… select to stop and send";
+  } catch (error) {
+    voiceStream?.getTracks().forEach((track) => track.stop());
+    voiceStream = null;
+    addSystemMessage(error.name === "NotAllowedError" ? "Allow microphone access to record a voice message." : "Could not start voice recording.");
+  }
+});
 $("message-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const text = input.value.trim();
@@ -97,11 +149,12 @@ $("message-form").addEventListener("submit", async (e) => {
 });
 
 // ----- 3. Showing messages -----
-function addMessage({ id, conversation, user, text, time, avatar, attachment, senderId, assistant, deleted, reactions }) {
-  const message = { id, conversation, user, text, time, avatar, attachment, senderId, assistant, deleted, reactions };
+function addMessage({ id, conversation, user, text, time, avatar, attachment, senderId, assistant, deleted, reactions, reactionNames }) {
+  const message = { id, conversation, user, text, time, avatar, attachment, senderId, assistant, deleted, reactions, reactionNames };
   const key = messageKey(message);
   if (showSavedOnly && !savedItems.some((item) => messageKey(item) === key)) return;
   const box = document.createElement("div");
+  const ownMessage = senderId ? senderId === currentUserId : user === username;
   box.className = "msg" + (user === username ? " mine" : "");
   if (id) box.dataset.messageId = id;
   const bubble = document.createElement("div");
@@ -136,14 +189,28 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
     reactionRow = document.createElement("div");
     reactionRow.className = "message-reactions";
     reactionEntries.forEach(([emoji, reactors]) => {
+      const wrapper = document.createElement("span");
+      wrapper.className = "reaction-wrap";
       const reaction = document.createElement("button");
       reaction.type = "button";
       reaction.className = "reaction-chip" + (reactors.includes(currentUserId) ? " reacted" : "");
       reaction.textContent = `${emoji} ${reactors.length}`;
       reaction.title = reactors.length === 1 ? "1 reaction" : `${reactors.length} reactions`;
       reaction.setAttribute("aria-pressed", String(reactors.includes(currentUserId)));
-      reaction.addEventListener("click", (event) => { event.stopPropagation(); socket.emit("react message", { messageId: id, emoji }); });
-      reactionRow.append(reaction);
+      const names = reactionNames?.[emoji] || [];
+      const who = document.createElement("span");
+      who.className = "reaction-who";
+      who.setAttribute("role", "tooltip");
+      who.textContent = names.length ? `Reacted by ${names.slice(0, 8).join(", ")}${names.length > 8 ? ` and ${names.length - 8} more` : ""}` : `${reactors.length} people reacted`;
+      reaction.title = who.textContent;
+      reaction.setAttribute("aria-label", `${emoji}, reacted by ${names.join(", ") || `${reactors.length} people`}`);
+      reaction.addEventListener("click", (event) => {
+        event.stopPropagation();
+        document.querySelectorAll(".reaction-wrap.show-reactors").forEach((open) => { if (open !== wrapper) open.classList.remove("show-reactors"); });
+        wrapper.classList.toggle("show-reactors");
+      });
+      wrapper.append(reaction, who);
+      reactionRow.append(wrapper);
     });
   }
   if (deleted) {
@@ -172,7 +239,7 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
     menuButton.setAttribute("aria-expanded", String(willOpen));
   });
   let lastTouchTime = 0;
-  const canQuickReact = (event) => id && !event.target.closest("button, a, video, .message-actions, .message-reactions");
+  const canQuickReact = (event) => !ownMessage && id && !event.target.closest("button, a, video, .message-actions, .message-reactions");
   box.addEventListener("dblclick", (event) => {
     if (!canQuickReact(event)) return;
     event.preventDefault();
@@ -191,35 +258,38 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
     if (event.target.closest(".message-menu")) return;
     event.preventDefault();
     closeMessageMenus();
-    const menuWidth = 205;
-    const menuHeight = 245;
+    menu._portalParent = actions;
+    document.body.append(menu);
     menu.style.position = "fixed";
-    menu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8))}px`;
-    menu.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8))}px`;
     menu.style.right = "auto";
+    menu.style.zIndex = "1000";
     menu.classList.remove("hidden");
+    const bounds = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - bounds.width - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - bounds.height - 8))}px`;
     menuButton.setAttribute("aria-expanded", "true");
   });
-  const reactionPicker = document.createElement("div");
-  reactionPicker.className = "reaction-picker";
-  const reactionLabel = document.createElement("span");
-  reactionLabel.className = "reaction-picker-label";
-  reactionLabel.textContent = "React";
-  reactionPicker.append(reactionLabel);
-  ["👍", "❤️", "😂", "😮", "😢", "🎉", "🔥", "🙏"].forEach((emoji) => {
-    const reaction = document.createElement("button");
-    reaction.type = "button";
-    reaction.textContent = emoji;
-    reaction.setAttribute("aria-label", `React with ${emoji}`);
-    reaction.addEventListener("click", (event) => {
-      event.stopPropagation();
-      socket.emit("react message", { messageId: id, emoji });
-      menu.classList.add("hidden");
-      menuButton.setAttribute("aria-expanded", "false");
+  if (!ownMessage) {
+    const reactionPicker = document.createElement("div");
+    reactionPicker.className = "reaction-picker";
+    const reactionLabel = document.createElement("span");
+    reactionLabel.className = "reaction-picker-label";
+    reactionLabel.textContent = "React";
+    reactionPicker.append(reactionLabel);
+    ["👍", "❤️", "😂", "😮", "😢", "🎉", "🔥", "🙏"].forEach((emoji) => {
+      const reaction = document.createElement("button");
+      reaction.type = "button";
+      reaction.textContent = emoji;
+      reaction.setAttribute("aria-label", `React with ${emoji}`);
+      reaction.addEventListener("click", (event) => {
+        event.stopPropagation();
+        socket.emit("react message", { messageId: id, emoji });
+        closeMessageMenus();
+      });
+      reactionPicker.append(reaction);
     });
-    reactionPicker.append(reaction);
-  });
-  menu.append(reactionPicker);
+    menu.append(reactionPicker);
+  }
   const pin = document.createElement("button");
   pin.type = "button";
   pin.className = "pin-message";
@@ -248,8 +318,9 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "delete-message";
-    remove.textContent = attachment ? "Delete message / photo" : "Delete message";
-    remove.setAttribute("aria-label", attachment ? "Delete message and attached photo" : "Delete message");
+    const attachmentLabel = attachment?.type?.startsWith("audio/") ? "voice message" : "attached file";
+    remove.textContent = attachment ? `Delete message / ${attachmentLabel}` : "Delete message";
+    remove.setAttribute("aria-label", attachment ? `Delete message and ${attachmentLabel}` : "Delete message");
     remove.addEventListener("click", () => {
       if (window.confirm(attachment ? "Delete this message and its attached file?" : "Delete this message?")) socket.emit("delete message", id);
       menu.classList.add("hidden");
@@ -269,15 +340,21 @@ function messageKey(message) { return `${message.user}\n${message.time}\n${messa
 function closeMessageMenus() {
   document.querySelectorAll(".message-menu").forEach((menu) => {
     menu.classList.add("hidden");
+    if (menu._portalParent) {
+      menu._portalParent.appendChild(menu);
+      delete menu._portalParent;
+    }
     menu.style.position = "";
     menu.style.left = "";
     menu.style.top = "";
     menu.style.right = "";
+    menu.style.zIndex = "";
   });
   document.querySelectorAll(".message-menu-button").forEach((button) => button.setAttribute("aria-expanded", "false"));
 }
 document.addEventListener("click", () => {
   closeMessageMenus();
+  document.querySelectorAll(".reaction-wrap.show-reactors").forEach((wrapper) => wrapper.classList.remove("show-reactors"));
 });
 function renderMessages() {
   messagesBox.replaceChildren();
@@ -301,6 +378,14 @@ async function showAttachment(attachment, container) {
       image.alt = attachment.name;
       image.className = "attachment-image";
       container.append(image);
+    } else if (attachment.type?.startsWith("audio/")) {
+      const audio = document.createElement("audio");
+      audio.src = url;
+      audio.controls = true;
+      audio.preload = "metadata";
+      audio.className = "voice-message-player";
+      audio.setAttribute("aria-label", `Voice message from ${attachment.name}`);
+      container.append(audio);
     } else {
       const link = document.createElement("a");
       link.href = url;
@@ -439,9 +524,9 @@ socket.on("message deleted", ({ message, conversation, pinned }) => {
   renderPinnedMessages();
   updateDetailsPanel();
 });
-socket.on("message reactions", ({ id, conversation, reactions }) => {
-  allMessages = allMessages.map((message) => message.id === id ? { ...message, reactions } : message);
-  savedItems = savedItems.map((message) => message.id === id ? { ...message, reactions } : message);
+socket.on("message reactions", ({ id, conversation, reactions, reactionNames }) => {
+  allMessages = allMessages.map((message) => message.id === id ? { ...message, reactions, reactionNames } : message);
+  savedItems = savedItems.map((message) => message.id === id ? { ...message, reactions, reactionNames } : message);
   if (conversation === currentConversation) renderMessages();
 });
 socket.on("system message", addSystemMessage);
