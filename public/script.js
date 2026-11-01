@@ -11,6 +11,7 @@ let currentDirectUser = null;
 let pinnedItems = [];
 let onlineUserCache = [];
 let myGroups = [];
+let editingGroupId = null;
 let unreadCount = 0;
 const titleBase = "Chatly";
 const attachmentUrls = new Map();
@@ -334,7 +335,7 @@ socket.on("direct notification", ({ conversation, fromId, fromName }) => {
   if (conversation === currentConversation) return;
   incrementUnread(`${fromName} sent you a message`);
 });
-socket.on("groups updated", loadGroups);
+socket.on("groups updated", async () => { await loadGroups(); updateDetailsPanel(); });
 socket.on("chat message", (message) => {
   if (message.conversation !== currentConversation) {
     if (message.conversation?.startsWith("dm:") || message.senderId === currentUserId) return;
@@ -417,14 +418,22 @@ function openGroup(group) {
   sidebar.classList.remove("open");
 }
 
-$("create-group-btn").addEventListener("click", async () => {
+async function showGroupMembersDialog(group = null) {
+  editingGroupId = group?.id || null;
   $("group-modal").classList.remove("hidden");
+  $("group-modal-title").textContent = group ? `Add members to ${group.name}` : "Create a group";
+  $("group-name-label").classList.toggle("hidden", Boolean(group));
+  $("group-name").classList.toggle("hidden", Boolean(group));
+  $("group-name").required = !group;
+  $("group-submit").textContent = group ? "Add members" : "Create group";
   $("group-status").textContent = "Loading members…";
   $("group-member-options").replaceChildren();
   try {
     const response = await fetch("/api/group-members", { headers: { Authorization: `Bearer ${authToken}` } });
-    const members = await response.json();
-    if (!response.ok) throw new Error(members.error || "Could not load members.");
+    const availableMembers = await response.json();
+    if (!response.ok) throw new Error(availableMembers.error || "Could not load members.");
+    const existingIds = new Set(group?.memberIds || []);
+    const members = [...(group?.members || []), ...availableMembers.filter((member) => !existingIds.has(member.id))];
     const options = $("group-member-options");
     if (!members.length) options.textContent = "No other Chatly members yet.";
     members.forEach((member) => {
@@ -433,6 +442,7 @@ $("create-group-btn").addEventListener("click", async () => {
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
       checkbox.value = member.id;
+      if (existingIds.has(member.id)) { checkbox.checked = true; checkbox.disabled = true; }
       const avatar = createAvatar(member.name, member.avatar);
       const name = document.createElement("span");
       name.textContent = member.name;
@@ -443,6 +453,11 @@ $("create-group-btn").addEventListener("click", async () => {
     });
     $("group-status").textContent = "Select one or more people to add.";
   } catch (error) { $("group-status").textContent = error.message; }
+}
+$("create-group-btn").addEventListener("click", () => showGroupMembersDialog());
+$("add-group-members-btn").addEventListener("click", () => {
+  const group = myGroups.find((item) => `group:${item.id}` === currentConversation);
+  if (group?.creatorId === currentUserId) showGroupMembersDialog(group);
 });
 $("group-close").addEventListener("click", () => $("group-modal").classList.add("hidden"));
 $("group-modal").addEventListener("click", (event) => { if (event.target === $("group-modal")) $("group-modal").classList.add("hidden"); });
@@ -450,16 +465,21 @@ $("create-group-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const submit = $("group-submit");
   submit.disabled = true;
-  $("group-status").textContent = "Creating group…";
-  const memberIds = [...$("group-member-options").querySelectorAll("input:checked")].map((checkbox) => checkbox.value);
+  const groupMode = Boolean(editingGroupId);
+  $("group-status").textContent = groupMode ? "Adding members…" : "Creating group…";
+  const memberIds = [...$("group-member-options").querySelectorAll("input:checked:not(:disabled)")].map((checkbox) => checkbox.value);
   try {
-    const response = await fetch("/api/groups", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ name: $("group-name").value.trim(), memberIds }) });
+    const url = groupMode ? `/api/groups/${encodeURIComponent(editingGroupId)}/members` : "/api/groups";
+    const body = groupMode ? { memberIds } : { name: $("group-name").value.trim(), memberIds };
+    const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify(body) });
     const group = await response.json();
-    if (!response.ok) throw new Error(group.error || "Could not create group.");
+    if (!response.ok) throw new Error(group.error || (groupMode ? "Could not add members." : "Could not create group."));
     $("group-modal").classList.add("hidden");
-    $("group-name").value = "";
+    if (!groupMode) $("group-name").value = "";
+    editingGroupId = null;
     await loadGroups();
-    openGroup(group);
+    if (!groupMode) openGroup(group);
+    else updateDetailsPanel();
   } catch (error) { $("group-status").textContent = error.message; }
   finally { submit.disabled = false; }
 });
@@ -620,11 +640,11 @@ socket.on("typing", ({ user, isTyping }) => {
 // ----- 5. Online users -----
 // Server sends an array of names: ["Rahul", "Aman"]
 socket.on("user list", (users) => {
-  onlineUserCache = users;
-  $("online-count").textContent = users.length;
+  onlineUserCache = users.filter((user) => user.id !== currentUserId);
+  $("online-count").textContent = onlineUserCache.length;
   const list = $("user-list");
   list.innerHTML = "";
-  users.forEach(({ id, name, avatar }) => {
+  onlineUserCache.forEach(({ id, name, avatar }) => {
     const li = document.createElement("li");
     li.append(createAvatar(name, avatar));
     const label = document.createElement("button");
@@ -649,6 +669,16 @@ function updateDetailsPanel() {
   const person = currentDirectUser;
   const group = currentConversation.startsWith("group:") ? myGroups.find((item) => `group:${item.id}` === currentConversation) : null;
   const name = person?.name || group?.name || `# ${currentConversation}`;
+  const conversationAvatar = createAvatar(name, person?.avatar || "", "avatar conversation-avatar");
+  conversationAvatar.id = "conversation-avatar";
+  $("conversation-avatar").replaceWith(conversationAvatar);
+  $("conversation-name").textContent = name;
+  const onlineGroupMembers = group ? group.memberIds.filter((id) => id === currentUserId || onlineUserCache.some((user) => user.id === id)).length : 0;
+  $("conversation-subtitle").textContent = person
+    ? (onlineUserCache.some((user) => user.id === person.id) ? "Direct message · Online" : "Direct message")
+    : group ? `${group.memberIds.length} members · ${onlineGroupMembers} online`
+      : `Community room · ${onlineUserCache.length} online`;
+  $("add-group-members-header").classList.toggle("hidden", !group || group.creatorId !== currentUserId);
   const avatar = createAvatar(name, person?.avatar || "", "avatar details-avatar");
   avatar.id = "details-avatar";
   $("details-avatar").replaceWith(avatar);
@@ -656,6 +686,23 @@ function updateDetailsPanel() {
   $("details-status").textContent = person
     ? (onlineUserCache.some((user) => user.id === person.id) ? "Online" : "Chat member")
     : group ? `${group.memberIds.length} members` : "Chat room";
+  const membersSection = $("details-members-section");
+  membersSection.classList.toggle("hidden", !group);
+  $("add-group-members-btn").classList.toggle("hidden", !group || group.creatorId !== currentUserId);
+  const membersBox = $("details-members");
+  membersBox.replaceChildren();
+  (group?.members || []).forEach((member) => {
+    const row = document.createElement("div");
+    row.className = "details-member";
+    row.append(createAvatar(member.name, member.avatar));
+    const label = document.createElement("span");
+    label.textContent = member.name + (member.id === group.creatorId ? " · Admin" : "");
+    const status = document.createElement("span");
+    status.className = member.online ? "online-dot" : "offline-dot";
+    status.title = member.online ? "Online" : "Offline";
+    row.append(label, status);
+    membersBox.append(row);
+  });
 
   const attachments = allMessages.filter((message) => message.attachment).map((message) => message.attachment);
   const unique = [...new Map(attachments.map((file) => [file.id, file])).values()];
@@ -686,10 +733,15 @@ $("details-toggle").addEventListener("click", () => {
   if (window.innerWidth > 1000) $("chat").classList.toggle("details-closed");
   else $("details-panel").classList.add("open");
 });
+$("conversation-details-btn").addEventListener("click", () => {
+  if (window.innerWidth > 1000) $("chat").classList.toggle("details-closed");
+  else $("details-panel").classList.add("open");
+});
 $("details-close").addEventListener("click", () => {
   if (window.innerWidth > 1000) $("chat").classList.add("details-closed");
   else $("details-panel").classList.remove("open");
 });
+$("conversation-search-btn").addEventListener("click", () => $("search-input").focus());
 
 $("menu-btn").addEventListener("click", () => sidebar.classList.toggle("open"));
 messagesBox.addEventListener("click", () => sidebar.classList.remove("open"));

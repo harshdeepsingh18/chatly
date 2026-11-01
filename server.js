@@ -128,7 +128,15 @@ app.post("/api/username", async (req, res) => {
 app.get("/api/groups", async (req, res) => {
   const user = await getSupabaseUser(req);
   if (!user) return res.status(401).json({ error: "Sign in first." });
-  res.json(Object.values(groups).filter((group) => group.memberIds.includes(user.id)));
+  const onlineById = new Map();
+  for (const [socketId, member] of users) {
+    const socket = io.sockets.sockets.get(socketId);
+    if (socket?.data.userId) onlineById.set(socket.data.userId, member);
+  }
+  res.json(Object.values(groups).filter((group) => group.memberIds.includes(user.id)).map((group) => ({
+    ...group,
+    members: group.memberIds.map((id) => ({ id, name: usernameByUser.get(id) || "Chatly member", avatar: onlineById.get(id)?.avatar || "", online: onlineById.has(id) }))
+  })));
 });
 app.get("/api/group-members", async (req, res) => {
   const user = await getSupabaseUser(req);
@@ -161,6 +169,32 @@ app.post("/api/groups", async (req, res) => {
   groupsQueue = operation.catch(() => {});
   try { res.status(201).json(await operation); }
   catch { res.status(500).json({ error: "Could not create the group." }); }
+});
+app.post("/api/groups/:id/members", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in first." });
+  const group = groups[req.params.id];
+  if (!group || group.creatorId !== user.id) return res.status(404).json({ error: "Only the group creator can add members." });
+  const additions = Array.isArray(req.body?.memberIds) ? [...new Set(req.body.memberIds.filter((id) => typeof id === "string"))] : [];
+  if (!additions.length || additions.length > 24 || additions.some((id) => !usernameByUser.has(id))) return res.status(400).json({ error: "Choose at least one registered member to add." });
+  const operation = groupsQueue.then(async () => {
+    const current = groups[req.params.id];
+    if (!current || current.creatorId !== user.id) throw new Error("Only the group creator can add members.");
+    const nextGroup = { ...current, memberIds: [...new Set([...current.memberIds, ...additions])] };
+    if (nextGroup.memberIds.length > 25) {
+      const error = new Error("Groups can have up to 25 members.");
+      error.status = 400;
+      throw error;
+    }
+    const next = { ...groups, [current.id]: nextGroup };
+    await writeFile(groupsFile, JSON.stringify(next, null, 2), "utf8");
+    groups = next;
+    nextGroup.memberIds.forEach((memberId) => io.to(`user:${memberId}`).emit("groups updated"));
+    return nextGroup;
+  });
+  groupsQueue = operation.catch(() => {});
+  try { res.json(await operation); }
+  catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : "Could not add those members." }); }
 });
 app.get("/api/saved-messages", async (req, res) => {
   const user = await getSupabaseUser(req);
