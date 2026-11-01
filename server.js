@@ -3,8 +3,8 @@ const http = require("http");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { readFileSync } = require("node:fs");
+const { appendFile, mkdir, readFile, unlink, writeFile } = require("node:fs/promises");
 const { Server } = require("socket.io");
-const { createSupabaseStore } = require("./supabase-store");
 
 function loadEnvFile(file) {
   let contents;
@@ -23,14 +23,7 @@ loadEnvFile(path.join(__dirname, ".env"));
 
 const app = express();
 const server = http.createServer(app);
-const allowedOrigins = (process.env.CHATLY_ALLOWED_ORIGINS || process.env.CHATLY_WEB_ORIGIN || "")
-  .split(",").map((origin) => origin.trim()).filter(Boolean);
-const io = new Server(server, {
-  cors: {
-    origin: ["http://localhost:3000", "http://127.0.0.1:3000", ...allowedOrigins],
-    methods: ["GET", "POST"]
-  }
-});
+const io = new Server(server);
 const dataDirectory = path.join(__dirname, "data");
 const messageFile = path.join(dataDirectory, "messages.jsonl");
 const savedFile = path.join(dataDirectory, "saved-messages.json");
@@ -44,15 +37,6 @@ const partyGamesFile = path.join(dataDirectory, "party-games.json");
 const uploadDirectory = path.join(dataDirectory, "uploads");
 const supabaseUrl = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "";
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-const apiUrl = (process.env.CHATLY_API_URL || "").replace(/\/$/, "");
-const realtimeUrl = (process.env.CHATLY_REALTIME_URL || "").replace(/\/$/, "");
-const supabaseStore = createSupabaseStore({ url: supabaseUrl, serviceKey: supabaseServiceRoleKey, dataDirectory });
-const readFile = (...args) => supabaseStore.readFile(...args);
-const writeFile = (...args) => supabaseStore.writeFile(...args);
-const appendFile = (...args) => supabaseStore.appendFile(...args);
-const mkdir = (...args) => supabaseStore.mkdir(...args);
-const unlink = (...args) => supabaseStore.unlink(...args);
 const configuredOpenAiApiKey = process.env.OPENAI_API_KEY || "";
 const openAiApiKey = configuredOpenAiApiKey.toLowerCase().startsWith("your-") ? "" : configuredOpenAiApiKey;
 const openAiModel = process.env.OPENAI_MODEL || "gpt-4.1-mini";
@@ -61,36 +45,10 @@ const geminiApiKey = configuredGeminiApiKey.toLowerCase().startsWith("your-") ? 
 const geminiModel = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 const chatRooms = ["general", "doubts", "notes"];
 
-app.use((req, res, next) => {
-  const origin = req.get("origin");
-  if (origin && allowedOrigins.includes(origin)) {
-    res.set("Access-Control-Allow-Origin", origin);
-    res.set("Vary", "Origin");
-    res.set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Chat-Conversation, X-File-Name, X-File-Type");
-    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  }
-  if (req.method === "OPTIONS") return res.sendStatus(origin && allowedOrigins.includes(origin) ? 204 : 403);
-  next();
-});
 app.use(express.static(path.join(__dirname, "public")));
 app.use(express.json({ limit: "8kb" }));
 app.get("/config.js", (_req, res) => {
-  res.type("application/javascript").send(`window.CHATLY_SUPABASE_URL = ${JSON.stringify(supabaseUrl)}; window.CHATLY_SUPABASE_ANON_KEY = ${JSON.stringify(supabaseAnonKey)}; window.CHATLY_ROOMS = ${JSON.stringify(chatRooms)}; window.CHATLY_AURA_ENABLED = ${Boolean(openAiApiKey || geminiApiKey)}; window.CHATLY_API_URL = ${JSON.stringify(apiUrl)}; window.CHATLY_REALTIME_URL = ${JSON.stringify(realtimeUrl)};`);
-});
-app.get("/socket.io/socket.io.js", (_req, res) => res.sendFile(require.resolve("socket.io/client-dist/socket.io.js")));
-let initializationPromise;
-function initializeStorage() {
-  if (!initializationPromise) {
-    if ((process.env.NODE_ENV === "production" || process.env.VERCEL) && (!supabaseStore.enabled || !supabaseUrl || !supabaseAnonKey)) {
-      initializationPromise = Promise.reject(new Error("Production requires SUPABASE_URL, SUPABASE_ANON_KEY, and server-only SUPABASE_SERVICE_ROLE_KEY; local files are not writable there."));
-    } else {
-      initializationPromise = loadMessages();
-    }
-  }
-  return initializationPromise;
-}
-app.use((req, res, next) => {
-  initializeStorage().then(() => next(), next);
+  res.type("application/javascript").send(`window.CHATLY_SUPABASE_URL = ${JSON.stringify(supabaseUrl)}; window.CHATLY_SUPABASE_ANON_KEY = ${JSON.stringify(supabaseAnonKey)}; window.CHATLY_ROOMS = ${JSON.stringify(chatRooms)}; window.CHATLY_AURA_ENABLED = ${Boolean(openAiApiKey || geminiApiKey)};`);
 });
 
 let savedMessages = {};
@@ -117,7 +75,7 @@ const avatarBackgrounds = ["#ed5262", "#68b9a2", "#f0a642", "#a98be8", "#5ba9d3"
 const avatarSkins = ["#f6d1b1", "#e8b995", "#d69a70", "#bd805c", "#9b6249", "#f0c7a0", "#81523e", "#613e33"];
 const avatarHairs = ["#241d22", "#3b2a24", "#6d422d", "#ad6236", "#d0a34f", "#41454c", "#8a5b72", "#252e3c", "#4b4734", "#b8b3ac"];
 const avatarClothes = ["#6556a5", "#337f83", "#b7535d", "#e18449", "#4e719e", "#57916d", "#353b49", "#d16e9b", "#ba9146", "#609caa"];
-const avatarUrlFor = (avatarId) => avatarId ? `${apiUrl}/api/avatars/${avatarId}.svg` : "";
+const avatarUrlFor = (avatarId) => avatarId ? `/api/avatars/${avatarId}.svg` : "";
 function makeAvatarSvg(index) {
   const pick = (items, factor) => items[(index * factor + Math.floor(index / 7)) % items.length];
   const bg = pick(avatarBackgrounds, 5);
@@ -402,7 +360,7 @@ app.post("/api/uploads", express.raw({ type: "application/octet-stream", limit: 
   const id = crypto.randomUUID();
   const metadata = { id, name: name || "attachment", type, size: buffer.length, conversation, uploaderId: user.id };
   try {
-    await writeFile(path.join(uploadDirectory, id), buffer, supabaseStore.enabled ? type : undefined);
+    await writeFile(path.join(uploadDirectory, id), buffer);
     const operation = uploadQueue.then(async () => {
       const next = { ...uploads, [id]: metadata };
       await writeFile(uploadsFile, JSON.stringify(next), "utf8");
@@ -971,7 +929,6 @@ io.on("connection", (socket) => {
       reactionQueue = reactionCleanup.catch((error) => console.error("Could not remove deleted message reactions:", error));
       await reactionCleanup;
       const operation = persistenceQueue.then(async () => {
-        await supabaseStore.deleteMessage(messageId);
         await writeFile(messageFile, nextMessages.map((item) => JSON.stringify(item)).join("\n") + (nextMessages.length ? "\n" : ""), "utf8");
         await writeFile(pinsFile, JSON.stringify(nextPins), "utf8");
         await writeFile(savedFile, JSON.stringify(nextSaved), "utf8");
@@ -1138,20 +1095,13 @@ snakeArenaTimer.unref();
 const PORT = process.env.PORT || 3000;
 
 async function startServer() {
-  if (process.env.NODE_ENV === "production" && (!supabaseStore.enabled || !supabaseUrl || !supabaseAnonKey)) {
-    throw new Error("Production requires SUPABASE_URL, SUPABASE_ANON_KEY, and server-only SUPABASE_SERVICE_ROLE_KEY.");
-  }
-  await initializeStorage();
+  await loadMessages();
   server.listen(PORT, () => {
     console.log("Chatly running at http://localhost:" + PORT);
   });
 }
 
-if (require.main === module) {
-  startServer().catch((error) => {
-    console.error("Unable to start Chatly:", error);
-    process.exitCode = 1;
-  });
-}
-
-module.exports = app;
+startServer().catch((error) => {
+  console.error("Unable to start Chatly:", error);
+  process.exitCode = 1;
+});

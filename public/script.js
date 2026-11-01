@@ -1,7 +1,4 @@
-const apiBaseUrl = (window.CHATLY_API_URL || "").replace(/\/$/, "");
-const realtimeUrl = (window.CHATLY_REALTIME_URL || "").replace(/\/$/, "");
-const apiUrl = (path) => `${apiBaseUrl}${path}`;
-const socket = io(realtimeUrl || undefined, { autoConnect: false });
+const socket = io({ autoConnect: false });
 let username = "";
 let currentUserId = "";
 let currentProfile = null;
@@ -143,7 +140,7 @@ $("message-form").addEventListener("submit", async (e) => {
     let attachment;
     if (file) {
       if (file.size > 12 * 1024 * 1024) throw new Error("Files must be 12 MB or smaller.");
-      const response = await fetch(apiUrl("/api/uploads"), {
+      const response = await fetch("/api/uploads", {
         method: "POST",
         headers: {
           "Content-Type": "application/octet-stream",
@@ -330,7 +327,7 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
     if (!authToken) { addSystemMessage("Sign in with Google to save messages."); return; }
     save.disabled = true;
     try {
-      const response = await fetch(apiUrl("/api/saved-messages"), { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ message, saved: !isSaved }) });
+      const response = await fetch("/api/saved-messages", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ message, saved: !isSaved }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not update saved messages.");
       savedItems = result.saved;
@@ -391,7 +388,7 @@ async function showAttachment(attachment, container) {
   try {
     let url = attachmentUrls.get(attachment.id);
     if (!url) {
-      const response = await fetch(apiUrl(`/api/uploads/${encodeURIComponent(attachment.id)}`), { headers: { Authorization: `Bearer ${authToken}` } });
+      const response = await fetch(`/api/uploads/${encodeURIComponent(attachment.id)}`, { headers: { Authorization: `Bearer ${authToken}` } });
       if (!response.ok) throw new Error("Attachment unavailable");
       url = URL.createObjectURL(await response.blob());
       attachmentUrls.set(attachment.id, url);
@@ -463,7 +460,7 @@ function playMessageSound() {
 }
 let allMessages = [];
 function loadSavedMessages() {
-  return fetch(apiUrl("/api/saved-messages"), { headers: { Authorization: `Bearer ${authToken}` } }).then(async (response) => {
+  return fetch("/api/saved-messages", { headers: { Authorization: `Bearer ${authToken}` } }).then(async (response) => {
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Could not load saved messages.");
     savedItems = result;
@@ -977,7 +974,7 @@ document.querySelectorAll(".room-button").forEach((button) => {
 async function loadGroups() {
   if (!authToken) return;
   try {
-    const response = await fetch(apiUrl("/api/groups"), { headers: { Authorization: `Bearer ${authToken}` } });
+    const response = await fetch("/api/groups", { headers: { Authorization: `Bearer ${authToken}` } });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Could not load groups.");
     myGroups = result;
@@ -1037,7 +1034,7 @@ async function showGroupMembersDialog(group = null) {
   $("group-status").textContent = "Loading members…";
   $("group-member-options").replaceChildren();
   try {
-    const response = await fetch(apiUrl("/api/group-members"), { headers: { Authorization: `Bearer ${authToken}` } });
+    const response = await fetch("/api/group-members", { headers: { Authorization: `Bearer ${authToken}` } });
     const availableMembers = await response.json();
     if (!response.ok) throw new Error(availableMembers.error || "Could not load members.");
     const existingIds = new Set(group?.memberIds || []);
@@ -1081,7 +1078,7 @@ $("create-group-form").addEventListener("submit", async (event) => {
   try {
     const url = groupMode ? `/api/groups/${encodeURIComponent(editingGroupId)}/members` : "/api/groups";
     const body = groupMode ? { memberIds } : { name: $("group-name").value.trim(), memberIds };
-    const response = await fetch(apiUrl(url), { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify(body) });
+    const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify(body) });
     const group = await response.json();
     if (!response.ok) throw new Error(group.error || (groupMode ? "Could not add members." : "Could not create group."));
     $("group-modal").classList.add("hidden");
@@ -1124,12 +1121,12 @@ async function resumeSupabaseSession() {
   $("auth-status").textContent = `Signed in as ${user.email}`;
   let hasSavedUsername = false;
   try {
-    const response = await fetch(apiUrl("/api/username"), { headers: { Authorization: `Bearer ${authToken}` } });
+    const response = await fetch("/api/username", { headers: { Authorization: `Bearer ${authToken}` } });
     const result = await response.json();
     if (response.ok && result.username) { username = result.username; hasSavedUsername = true; }
   } catch {}
   try {
-    const avatarResponse = await fetch(apiUrl("/api/avatar"), { headers: { Authorization: `Bearer ${authToken}` } });
+    const avatarResponse = await fetch("/api/avatar", { headers: { Authorization: `Bearer ${authToken}` } });
     const avatarResult = await avatarResponse.json();
     if (avatarResponse.ok) {
       currentProfile.avatarId = avatarResult.avatarId || "";
@@ -1156,7 +1153,7 @@ $("username-form").addEventListener("submit", async (event) => {
   submit.disabled = true;
   status.textContent = "Checking username…";
   try {
-    const response = await fetch(apiUrl("/api/username"), {
+    const response = await fetch("/api/username", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
       body: JSON.stringify({ username: chosenName })
@@ -1215,7 +1212,7 @@ function buildAvatarGrid() {
     button.dataset.avatarId = avatarId;
     button.setAttribute("aria-label", `Choose illustrated avatar ${index}`);
     const image = document.createElement("img");
-    image.src = apiUrl(`/api/avatars/${avatarId}.svg`);
+    image.src = `/api/avatars/${avatarId}.svg`;
     image.alt = "";
     image.loading = "lazy";
     button.append(image);
@@ -1228,7 +1225,7 @@ async function saveProfileAvatar(avatarId) {
   status.textContent = "Saving avatar…";
   document.querySelectorAll(".avatar-choice").forEach((button) => { button.disabled = true; });
   try {
-    const response = await fetch(apiUrl("/api/avatar"), { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ avatarId }) });
+    const response = await fetch("/api/avatar", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ avatarId }) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Could not save avatar.");
     currentProfile.avatarId = result.avatarId;
@@ -1270,7 +1267,7 @@ $("settings-username-form").addEventListener("submit", async (event) => {
   save.disabled = true;
   status.textContent = "Saving username…";
   try {
-    const response = await fetch(apiUrl("/api/username"), { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ username: $("settings-username").value.trim() }) });
+    const response = await fetch("/api/username", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ username: $("settings-username").value.trim() }) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Could not save that username.");
     username = result.username;
