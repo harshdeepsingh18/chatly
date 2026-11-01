@@ -9,6 +9,7 @@ let showSavedOnly = false;
 let currentConversation = "general";
 let currentDirectUser = null;
 let pinnedItems = [];
+let onlineUserCache = [];
 let unreadCount = 0;
 const titleBase = "Chatly";
 const attachmentUrls = new Map();
@@ -309,6 +310,7 @@ socket.on("conversation history", ({ conversation, messages, pinned }) => {
   pinnedItems = pinned;
   renderMessages();
   renderPinnedMessages();
+  updateDetailsPanel();
   clearUnread();
 });
 socket.on("pinned messages", ({ conversation, messages }) => {
@@ -323,6 +325,7 @@ socket.on("direct opened", ({ user }) => {
   $("call-controls").classList.remove("hidden");
   $("search-input").value = "";
   document.querySelectorAll(".room-button").forEach((button) => button.classList.remove("active"));
+  updateDetailsPanel();
 });
 socket.on("direct notification", ({ conversation, fromId, fromName }) => {
   if (fromId === currentUserId) return;
@@ -337,6 +340,7 @@ socket.on("chat message", (message) => {
   }
   allMessages.push(message);
   addMessage(message);
+  updateDetailsPanel();
   if (message.user !== username) {
     if (document.visibilityState !== "visible") incrementUnread("New message");
     else playMessageSound();
@@ -349,6 +353,7 @@ socket.on("message deleted", ({ message, conversation, pinned }) => {
   pinnedItems = pinned;
   renderMessages();
   renderPinnedMessages();
+  updateDetailsPanel();
 });
 socket.on("system message", addSystemMessage);
 socket.on("message error", addSystemMessage);
@@ -358,6 +363,7 @@ document.querySelectorAll(".room-button").forEach((button) => {
     currentDirectUser = null;
     $("call-controls").classList.add("hidden");
     currentConversation = button.dataset.room;
+    updateDetailsPanel();
     showSavedOnly = false;
     $("saved-btn").textContent = "☆ Saved";
     $("conversation-name").textContent = `# ${currentConversation}`;
@@ -524,6 +530,7 @@ socket.on("typing", ({ user, isTyping }) => {
 // ----- 5. Online users -----
 // Server sends an array of names: ["Rahul", "Aman"]
 socket.on("user list", (users) => {
+  onlineUserCache = users;
   $("online-count").textContent = users.length;
   const list = $("user-list");
   list.innerHTML = "";
@@ -545,6 +552,52 @@ socket.on("user list", (users) => {
     li.append(label, dot);
     list.appendChild(li);
   });
+  updateDetailsPanel();
+});
+
+function updateDetailsPanel() {
+  const person = currentDirectUser;
+  const name = person?.name || `# ${currentConversation}`;
+  const avatar = createAvatar(name, person?.avatar || "", "avatar details-avatar");
+  avatar.id = "details-avatar";
+  $("details-avatar").replaceWith(avatar);
+  $("details-name").textContent = name;
+  $("details-status").textContent = person
+    ? (onlineUserCache.some((user) => user.id === person.id) ? "Online" : "Chat member")
+    : "Chat room";
+
+  const attachments = allMessages.filter((message) => message.attachment).map((message) => message.attachment);
+  const unique = [...new Map(attachments.map((file) => [file.id, file])).values()];
+  const images = unique.filter((file) => file.type?.startsWith("image/")).slice(-6).reverse();
+  const files = unique.filter((file) => !file.type?.startsWith("image/")).slice(-6).reverse();
+  const mediaBox = $("details-media");
+  mediaBox.replaceChildren();
+  if (!images.length) mediaBox.innerHTML = '<span class="details-empty">No shared images yet</span>';
+  images.forEach((file) => {
+    const tile = document.createElement("div");
+    tile.className = "details-media-item";
+    tile.title = file.name;
+    mediaBox.append(tile);
+    showAttachment(file, tile);
+  });
+  const filesBox = $("details-files");
+  filesBox.replaceChildren();
+  if (!files.length) filesBox.innerHTML = '<span class="details-empty">No shared files yet</span>';
+  files.forEach((file) => {
+    const tile = document.createElement("div");
+    tile.className = "details-file";
+    filesBox.append(tile);
+    showAttachment(file, tile);
+  });
+}
+
+$ ("details-toggle").addEventListener("click", () => {
+  if (window.innerWidth > 1000) $("chat").classList.toggle("details-closed");
+  else $("details-panel").classList.add("open");
+});
+$("details-close").addEventListener("click", () => {
+  if (window.innerWidth > 1000) $("chat").classList.add("details-closed");
+  else $("details-panel").classList.remove("open");
 });
 
 $("menu-btn").addEventListener("click", () => sidebar.classList.toggle("open"));
@@ -583,12 +636,24 @@ function callIceServers() {
 }
 function showCall(status, incoming = false) {
   $("call-status").textContent = status;
+  const peerName = activeCall?.peerName || currentDirectUser?.name || "Chatly call";
+  const peerAvatar = activeCall?.peerAvatar || currentDirectUser?.avatar || "";
+  $("call-peer-name").textContent = peerName;
+  const headerAvatar = createAvatar(peerName, peerAvatar, "avatar call-avatar");
+  headerAvatar.id = "call-avatar";
+  $("call-avatar").replaceWith(headerAvatar);
+  const stageAvatar = createAvatar(peerName, peerAvatar, "avatar audio-call-avatar");
+  stageAvatar.id = "audio-call-avatar";
+  $("audio-call-avatar").replaceWith(stageAvatar);
+  $("audio-call-name").textContent = peerName;
   $("call-modal").classList.remove("hidden");
+  $("hangup-call-btn").classList.toggle("hidden", incoming);
   $("incoming-call-actions").classList.toggle("hidden", !incoming);
   $("active-call-actions").classList.toggle("hidden", incoming);
 }
 function setCallVideos(video) {
   $("call-modal").classList.toggle("audio-only", !video);
+  $("audio-call-stage").classList.toggle("hidden", video);
   $("local-video").classList.toggle("hidden", !video);
   $("remote-video").classList.toggle("hidden", !video);
   $("camera-call-btn").disabled = !video;
@@ -596,7 +661,7 @@ function setCallVideos(video) {
 async function startCall(video) {
   if (!currentDirectUser || activeCall) return;
   const callId = crypto.randomUUID();
-  activeCall = { callId, peerId: currentDirectUser.id, peerName: currentDirectUser.name, video, initiator: true, offerSent: false, pendingLocalCandidates: [] };
+  activeCall = { callId, peerId: currentDirectUser.id, peerName: currentDirectUser.name, peerAvatar: currentDirectUser.avatar || "", video, initiator: true, offerSent: false, pendingLocalCandidates: [] };
   setCallVideos(video);
   showCall(`Calling ${activeCall.peerName}…`);
   try {
@@ -684,8 +749,10 @@ function endCall(reason = "ended", notifyPeer = true) {
   $("local-video").srcObject = null;
   $("remote-video").srcObject = null;
   $("call-modal").classList.add("hidden");
-  $("mute-call-btn").textContent = "Mute";
-  $("camera-call-btn").textContent = "Camera off";
+  $("mute-call-btn").textContent = "🎙 Mute";
+  $("mute-call-btn").setAttribute("aria-label", "Mute microphone");
+  $("camera-call-btn").textContent = "▣ Camera off";
+  $("camera-call-btn").setAttribute("aria-label", "Turn camera off");
   activeCall = null;
 }
 
@@ -699,14 +766,16 @@ $("mute-call-btn").addEventListener("click", () => {
   if (!tracks.length) return;
   const muted = tracks[0].enabled;
   tracks.forEach((track) => { track.enabled = !muted; });
-  $("mute-call-btn").textContent = muted ? "Unmute" : "Mute";
+  $("mute-call-btn").textContent = muted ? "🎙 Unmute" : "🎙 Mute";
+  $("mute-call-btn").setAttribute("aria-label", muted ? "Unmute microphone" : "Mute microphone");
 });
 $("camera-call-btn").addEventListener("click", () => {
   const tracks = localCallStream?.getVideoTracks() || [];
   if (!tracks.length) return;
   const enabled = tracks[0].enabled;
   tracks.forEach((track) => { track.enabled = !enabled; });
-  $("camera-call-btn").textContent = enabled ? "Camera on" : "Camera off";
+  $("camera-call-btn").textContent = enabled ? "▣ Camera on" : "▣ Camera off";
+  $("camera-call-btn").setAttribute("aria-label", enabled ? "Turn camera on" : "Turn camera off");
 });
 
 socket.on("incoming call", ({ callId, fromId, fromName, fromAvatar, offer, video }) => {
@@ -716,7 +785,7 @@ socket.on("incoming call", ({ callId, fromId, fromName, fromAvatar, offer, video
   }
   currentDirectUser = { id: fromId, name: fromName, avatar: fromAvatar };
   socket.emit("open direct", fromId);
-  activeCall = { callId, peerId: fromId, peerName: fromName, video, offer, initiator: false };
+  activeCall = { callId, peerId: fromId, peerName: fromName, peerAvatar: fromAvatar || "", video, offer, initiator: false };
   setCallVideos(video);
   showCall(`Incoming ${video ? "video" : "voice"} call from ${fromName}`, true);
 });

@@ -66,6 +66,7 @@
         <button id="saved-btn" type="button" aria-pressed="false">☆ Saved</button>
         <button id="theme-btn" aria-label="Switch light or dark mode">🌙</button>
         <button id="profile-btn" type="button" aria-label="Profile and settings" title="Profile and settings">Profile</button>
+        <button id="details-toggle" type="button" aria-label="Show contact details" title="Contact details">ⓘ</button>
       </header>
 
       <div id="conversation-title">
@@ -88,23 +89,49 @@
         <button type="submit" id="send-btn" aria-label="Send">Send</button>
       </form>
     </main>
+    <aside id="details-panel" aria-label="Conversation details">
+      <div class="details-heading"><h2>Contact details</h2><button id="details-close" type="button" aria-label="Close contact details">×</button></div>
+      <div class="details-profile">
+        <span id="details-avatar" class="avatar details-avatar">C</span>
+        <strong id="details-name">Chatly</strong>
+        <span id="details-status">Choose a room or person</span>
+      </div>
+      <section class="details-section">
+        <h3>Media</h3>
+        <div id="details-media" class="details-media"><span class="details-empty">No shared images yet</span></div>
+      </section>
+      <section class="details-section">
+        <h3>Files</h3>
+        <div id="details-files" class="details-files"><span class="details-empty">No shared files yet</span></div>
+      </section>
+    </aside>
   </section>
 
   <section id="call-modal" class="call-modal hidden" role="dialog" aria-modal="true" aria-labelledby="call-status">
     <div class="call-card">
-      <p id="call-status">Calling…</p>
+      <header class="call-header">
+        <div class="call-participant">
+          <span id="call-avatar" class="avatar call-avatar">?</span>
+          <div><strong id="call-peer-name">Chatly call</strong><span id="call-status">Connecting…</span></div>
+        </div>
+        <button id="hangup-call-btn" class="call-end-button" type="button" aria-label="End call">End call <span aria-hidden="true">×</span></button>
+      </header>
       <div class="call-videos">
         <video id="remote-video" autoplay playsinline></video>
         <video id="local-video" autoplay muted playsinline></video>
+      </div>
+      <div id="audio-call-stage" class="audio-call-stage hidden">
+        <span id="audio-call-avatar" class="avatar audio-call-avatar">?</span>
+        <strong id="audio-call-name"></strong>
+        <span>Voice call</span>
       </div>
       <div id="incoming-call-actions" class="call-actions hidden">
         <button id="accept-call-btn" type="button">Accept</button>
         <button id="decline-call-btn" type="button">Decline</button>
       </div>
       <div id="active-call-actions" class="call-actions hidden">
-        <button id="mute-call-btn" type="button">Mute</button>
-        <button id="camera-call-btn" type="button">Camera off</button>
-        <button id="hangup-call-btn" type="button">Hang up</button>
+        <button id="mute-call-btn" type="button" aria-label="Mute microphone">🎙 Mute</button>
+        <button id="camera-call-btn" type="button" aria-label="Turn camera off">▣ Camera off</button>
       </div>
     </div>
   </section>
