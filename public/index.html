@@ -45,6 +45,12 @@
   <!-- CHAT SCREEN -->
   <section id="chat" class="screen hidden">
     <aside id="sidebar">
+      <h2>Rooms</h2>
+      <nav id="room-list" aria-label="Chat rooms">
+        <button type="button" class="room-button active" data-room="general"># general</button>
+        <button type="button" class="room-button" data-room="doubts"># doubts</button>
+        <button type="button" class="room-button" data-room="notes"># notes</button>
+      </nav>
       <h2>Online <span id="online-count">0</span></h2>
       <ul id="user-list"></ul>
     </aside>
@@ -56,20 +62,48 @@
           <strong><img src="/logo.svg" alt="" class="header-logo"> Chatly</strong>
           <small id="me"></small>
         </div>
+        <div id="call-controls" class="hidden" aria-label="Call options">
+          <button id="voice-call-btn" type="button" aria-label="Start voice call" title="Voice call">Call</button>
+          <button id="video-call-btn" type="button" aria-label="Start video call" title="Video call">Video</button>
+        </div>
+        <input id="search-input" type="search" placeholder="Search messages" aria-label="Search messages">
         <button id="saved-btn" type="button" aria-pressed="false">☆ Saved</button>
         <button id="theme-btn" aria-label="Switch light or dark mode">🌙</button>
       </header>
 
+      <div id="conversation-title"># general</div>
+      <div id="pinned-messages" class="hidden" aria-label="Pinned messages"></div>
       <div id="messages" aria-live="polite"></div>
       <div id="typing"></div>
 
       <form id="message-form">
         <div id="emoji-panel" class="hidden"></div>
         <button type="button" id="emoji-btn" aria-label="Add emoji">😊</button>
-        <input id="message-input" type="text" placeholder="Type a message" autocomplete="off">
+        <button type="button" id="file-btn" aria-label="Attach a file">+</button>
+        <input id="file-input" type="file" class="hidden" accept="image/*,.pdf,.txt,.docx">
+        <input id="message-input" type="text" placeholder="Message or @aura ask a question" autocomplete="off">
         <button type="submit" id="send-btn" aria-label="Send">Send</button>
       </form>
     </main>
+  </section>
+
+  <section id="call-modal" class="call-modal hidden" role="dialog" aria-modal="true" aria-labelledby="call-status">
+    <div class="call-card">
+      <p id="call-status">Calling…</p>
+      <div class="call-videos">
+        <video id="remote-video" autoplay playsinline></video>
+        <video id="local-video" autoplay muted playsinline></video>
+      </div>
+      <div id="incoming-call-actions" class="call-actions hidden">
+        <button id="accept-call-btn" type="button">Accept</button>
+        <button id="decline-call-btn" type="button">Decline</button>
+      </div>
+      <div id="active-call-actions" class="call-actions hidden">
+        <button id="mute-call-btn" type="button">Mute</button>
+        <button id="camera-call-btn" type="button">Camera off</button>
+        <button id="hangup-call-btn" type="button">Hang up</button>
+      </div>
+    </div>
   </section>
 
   <script src="/config.js"></script>

@@ -14,6 +14,13 @@ Start the app by following the setup steps below, then open [Chatly](http://loca
 - Profile photos and online indicators
 - Saved chat history shared with users and restored after server restarts
 - Online user list and typing indicators
+- Separate `#general`, `#doubts`, and `#notes` rooms
+- Private one-to-one chats from the online list
+- Voice and video calls in direct chats
+- Image and document sharing
+- Search and pinned messages per conversation
+- `@aura` study helper powered by Gemini
+- Message sounds and unread counts in the browser tab title
 - Emoji picker
 - Google sign-in and sign-up through Supabase Auth
 - Unique usernames reserved per account
@@ -65,3 +72,24 @@ npm start
 ```
 
 The **Continue with Google** button uses Supabase OAuth. First-time Google sign-ins create a Supabase user automatically; returning users sign in to the same account. After sign-in, choose a username. Names are unique regardless of capitalization and stay reserved to that account across restarts in `data/usernames.json`. The chat server verifies both the Supabase session and the account's username before accepting a Socket.IO connection. The same session authorizes private saved-message requests. Keep the `data` directory persistent. Never put a Supabase service-role key in the browser or in these environment variables; the anon/public key is intended for client use.
+
+## Rooms, direct messages, and files
+
+Chat history is separated into `#general`, `#doubts`, and `#notes`. Click an online username to open a private one-to-one conversation. Upload images, PDFs, text files, and DOCX notes up to 12 MB. Uploads, message history, saved messages, and pins are stored in `data/`; keep this folder persistent and backed up.
+
+Use the search field to filter the open conversation. Pin messages to keep them at the top of that conversation. Message sounds play for new messages, and unread messages update the browser tab title.
+
+## Voice and video calls
+
+Open a direct chat and choose **Call** or **Video**. Both people need to allow microphone access; video calls also need camera access. Browsers require HTTPS for camera and microphone access, with `localhost` allowed for development. Calls use peer-to-peer WebRTC with STUN; some restrictive networks may also require a TURN relay server.
+
+## Aura study helper
+
+Add a Gemini API key to the server's `.env` file to enable Aura:
+
+```env
+GEMINI_API_KEY=your-gemini-api-key
+GEMINI_MODEL=gemini-3.8-flash
+```
+
+Restart Chatly, then type `@aura explain photosynthesis` in a room or direct conversation. Gemini requests are made by the server using Google's Interactions API, so the API key is not sent to browsers. Chatly uses Gemini directly; no separate Aura project was found in this workspace.

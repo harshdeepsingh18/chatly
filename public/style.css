@@ -75,6 +75,11 @@ input { font: inherit; color: inherit; }
 #user-list { list-style: none; padding: 0; display: grid; gap: 0.6rem; }
 #user-list li { display: flex; align-items: center; gap: 0.6rem; min-width: 0; }
 .online-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.direct-user { background: transparent; color: var(--text); text-align: left; padding: 0.25rem 0; font-size: 0.9rem; }
+.direct-user:hover { color: var(--accent); }
+.room-list { display: grid; gap: 0.25rem; margin: 0.5rem 0 1.4rem; }
+.room-button { text-align: left; padding: 0.5rem 0.65rem; border-radius: 8px; background: transparent; color: var(--muted); }
+.room-button:hover, .room-button.active { background: var(--bg); color: var(--accent); font-weight: 700; }
 .avatar { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; overflow: hidden; color: white; background: var(--accent); font-size: 0.85rem; font-weight: 700; }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
 .online-dot { flex: 0 0 auto; width: 10px; height: 10px; border-radius: 50%; background: var(--online); box-shadow: 0 0 0 2px var(--panel); }
@@ -88,9 +93,17 @@ header {
 header .title { flex: 1; display: grid; }
 header .title strong { display: flex; align-items: center; gap: 0.4rem; }
 header .header-logo { width: 24px; height: 24px; border-radius: 7px; }
+header #search-input { width: min(190px, 22vw); min-width: 100px; padding: 0.45rem 0.7rem; border-radius: 999px; border: 1px solid rgba(255,255,255,0.45); background: rgba(255,255,255,0.14); color: inherit; }
+header #search-input::placeholder { color: rgba(255,255,255,0.75); }
+#call-controls { display: flex; gap: 0.25rem; }
+#call-controls button { border-radius: 8px; background: rgba(255,255,255,0.16); font-size: 0.82rem; padding: 0.4rem 0.55rem; }
+#call-controls button:hover { background: rgba(255,255,255,0.28); }
 header small { opacity: 0.8; }
 header button { background: transparent; color: inherit; font-size: 1.2rem; padding: 0.2rem 0.5rem; }
 #menu-btn { display: none; }
+#conversation-title { padding: 0.45rem 1rem; border-bottom: 1px solid var(--line); background: var(--panel); color: var(--muted); font-size: 0.84rem; font-weight: 700; }
+#pinned-messages { display: flex; gap: 0.5rem; overflow-x: auto; padding: 0.5rem 1rem; border-bottom: 1px solid var(--line); background: var(--panel); }
+#pinned-messages button { flex: 0 0 auto; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 999px; background: var(--bg); color: var(--text); padding: 0.4rem 0.7rem; font-size: 0.8rem; }
 
 /* ---------- Messages ---------- */
 #messages {
@@ -110,6 +123,11 @@ header button { background: transparent; color: inherit; font-size: 1.2rem; padd
 }
 .msg .name { display: flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; font-weight: 700; color: var(--accent); margin-bottom: 0.25rem; }
 .msg .message-avatar { width: 22px; height: 22px; font-size: 0.65rem; }
+.message-attachment { margin-top: 0.35rem; }
+.message-attachment a { color: var(--accent); overflow-wrap: anywhere; }
+.attachment-image { display: block; max-width: min(100%, 360px); max-height: 300px; border-radius: 10px; object-fit: contain; }
+.pin-message { display: block; margin: 0.35rem 0 0 auto; padding: 0.15rem 0.35rem; border-radius: 6px; background: transparent; color: inherit; opacity: 0.65; font-size: 0.72rem; }
+.pin-message:hover { opacity: 1; }
 .msg .time { display: block; font-size: 0.7rem; opacity: 0.6; margin-top: 0.2rem; text-align: right; }
 .msg .save-message { display: block; margin: 0.35rem 0 0 auto; padding: 0.15rem 0.35rem; border-radius: 6px; background: transparent; color: inherit; opacity: 0.65; font-size: 0.72rem; }
 .msg .save-message:hover { opacity: 1; background: color-mix(in srgb, currentColor 10%, transparent); }
@@ -130,6 +148,9 @@ header button { background: transparent; color: inherit; font-size: 1.2rem; padd
   flex: 1; padding: 0.7rem 1rem; border-radius: 999px;
   border: 1px solid var(--line); background: var(--bg); min-width: 0;
 }
+#file-btn { min-width: 38px; height: 38px; border-radius: 50%; background: var(--bg); color: var(--accent); font-size: 1.4rem; line-height: 1; }
+#file-btn:hover { background: var(--line); }
+#send-btn:disabled { opacity: 0.65; cursor: wait; }
 #emoji-btn { background: transparent; font-size: 1.4rem; }
 #send-btn {
   padding: 0.7rem 1.2rem; border-radius: 999px;
@@ -142,6 +163,18 @@ header button { background: transparent; color: inherit; font-size: 1.2rem; padd
 }
 #emoji-panel button { background: transparent; font-size: 1.4rem; padding: 0.2rem; }
 
+.call-modal { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 1rem; background: rgba(8, 10, 28, 0.72); }
+.call-card { width: min(720px, 100%); display: grid; gap: 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); box-shadow: 0 24px 80px rgba(0,0,0,0.3); }
+#call-status { color: var(--text); font-size: 1rem; font-weight: 700; text-align: center; }
+.call-videos { position: relative; min-height: 220px; overflow: hidden; border-radius: 12px; background: #090b16; }
+.call-videos video { width: 100%; height: min(56vh, 440px); object-fit: cover; background: #090b16; }
+#local-video { position: absolute; right: 0.75rem; bottom: 0.75rem; width: min(25%, 160px); height: auto; aspect-ratio: 4 / 3; border: 2px solid white; border-radius: 10px; }
+.call-modal.audio-only .call-videos { display: none; }
+.call-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 0.6rem; }
+.call-actions button { min-width: 90px; padding: 0.7rem 1rem; border-radius: 999px; background: var(--accent); color: white; font-weight: 700; }
+#decline-call-btn, #hangup-call-btn { background: #d43b4e; }
+.call-actions button:disabled { opacity: 0.55; cursor: not-allowed; }
+
 /* ---------- Phones: sidebar becomes a slide-out menu ---------- */
 @media (max-width: 700px) {
   #menu-btn { display: block; }
@@ -151,4 +184,9 @@ header button { background: transparent; color: inherit; font-size: 1.2rem; padd
   }
   #sidebar.open { transform: none; }
   .msg { max-width: 85%; }
+  header { gap: 0.3rem; padding-left: max(0.5rem, env(safe-area-inset-left)); padding-right: max(0.5rem, env(safe-area-inset-right)); }
+  header #search-input { width: 100px; min-width: 70px; font-size: 0.78rem; }
+  #call-controls button { font-size: 0.72rem; padding: 0.35rem; }
+  header button { padding: 0.2rem; font-size: 0.95rem; }
+  .call-videos { min-height: 180px; }
 }
