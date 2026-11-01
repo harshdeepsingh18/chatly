@@ -33,13 +33,18 @@ input { font: inherit; color: inherit; }
 :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 
 /* ---------- Login ---------- */
-#login { display: grid; place-items: center; height: 100%; padding: 1rem; }
-#username-screen { display: grid; place-items: center; height: 100%; padding: 1rem; }
+#login { display: grid; place-items: center; min-height: 100dvh; padding: 1rem; }
+#username-screen { display: grid; place-items: center; min-height: 100dvh; padding: 1rem; }
 .login-card {
   width: min(380px, 100%); background: var(--panel);
   padding: 2rem; border-radius: 18px; border: 1px solid var(--line);
   display: grid; gap: 0.9rem;
 }
+.brand-lockup { display: flex; align-items: center; gap: 0.9rem; }
+.brand-logo { width: 64px; height: 64px; border-radius: 17px; }
+.brand-lockup h1 { font-size: 2.3rem; line-height: 1; letter-spacing: -0.03em; }
+.brand-lockup p { margin-top: 0.35rem; }
+.login-card .welcome-copy { color: var(--text); line-height: 1.5; }
 .login-card h1 { font-size: 2.4rem; letter-spacing: -0.02em; }
 .login-card p { color: var(--muted); }
 .login-card input {
@@ -68,18 +73,21 @@ input { font: inherit; color: inherit; }
 #sidebar h2 { font-size: 1rem; margin-bottom: 0.8rem; }
 #online-count { color: var(--muted); font-weight: 400; margin-left: 0.3rem; }
 #user-list { list-style: none; padding: 0; display: grid; gap: 0.6rem; }
-#user-list li { display: flex; align-items: center; gap: 0.6rem; }
-#user-list li::before {
-  content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--online);
-}
+#user-list li { display: flex; align-items: center; gap: 0.6rem; min-width: 0; }
+.online-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.avatar { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; overflow: hidden; color: white; background: var(--accent); font-size: 0.85rem; font-weight: 700; }
+.avatar img { width: 100%; height: 100%; object-fit: cover; }
+.online-dot { flex: 0 0 auto; width: 10px; height: 10px; border-radius: 50%; background: var(--online); box-shadow: 0 0 0 2px var(--panel); }
 
 main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 
 header {
   display: flex; align-items: center; gap: 0.8rem;
-  padding: 0.8rem 1rem; background: var(--accent); color: var(--accent-text);
+  padding: calc(0.8rem + env(safe-area-inset-top)) 1rem 0.8rem; background: var(--accent); color: var(--accent-text);
 }
 header .title { flex: 1; display: grid; }
+header .title strong { display: flex; align-items: center; gap: 0.4rem; }
+header .header-logo { width: 24px; height: 24px; border-radius: 7px; }
 header small { opacity: 0.8; }
 header button { background: transparent; color: inherit; font-size: 1.2rem; padding: 0.2rem 0.5rem; }
 #menu-btn { display: none; }
@@ -100,8 +108,8 @@ header button { background: transparent; color: inherit; font-size: 1.2rem; padd
   align-self: flex-end; background: var(--mine); color: var(--mine-text);
   border-color: transparent; border-bottom-left-radius: 16px; border-bottom-right-radius: 4px;
 }
-.msg .name { font-size: 0.78rem; font-weight: 700; color: var(--accent); margin-bottom: 0.15rem; }
-.msg.mine .name { display: none; }
+.msg .name { display: flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; font-weight: 700; color: var(--accent); margin-bottom: 0.25rem; }
+.msg .message-avatar { width: 22px; height: 22px; font-size: 0.65rem; }
 .msg .time { display: block; font-size: 0.7rem; opacity: 0.6; margin-top: 0.2rem; text-align: right; }
 .msg .save-message { display: block; margin: 0.35rem 0 0 auto; padding: 0.15rem 0.35rem; border-radius: 6px; background: transparent; color: inherit; opacity: 0.65; font-size: 0.72rem; }
 .msg .save-message:hover { opacity: 1; background: color-mix(in srgb, currentColor 10%, transparent); }
@@ -116,7 +124,7 @@ header button { background: transparent; color: inherit; font-size: 1.2rem; padd
 /* ---------- Message bar ---------- */
 #message-form {
   position: relative; display: flex; gap: 0.5rem; align-items: center;
-  padding: 0.7rem 1rem; background: var(--panel); border-top: 1px solid var(--line);
+  padding: 0.7rem 1rem calc(0.7rem + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--line);
 }
 #message-input {
   flex: 1; padding: 0.7rem 1rem; border-radius: 999px;

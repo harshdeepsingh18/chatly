@@ -49,8 +49,8 @@ $("message-form").addEventListener("submit", (e) => {
 });
 
 // ----- 3. Showing messages -----
-function addMessage({ user, text, time }) {
-  const message = { user, text, time };
+function addMessage({ user, text, time, avatar }) {
+  const message = { user, text, time, avatar };
   const key = messageKey(message);
   if (showSavedOnly && !savedItems.some((item) => messageKey(item) === key)) return;
   const box = document.createElement("div");
@@ -58,7 +58,10 @@ function addMessage({ user, text, time }) {
 
   const name = document.createElement("div");
   name.className = "name";
-  name.textContent = user;
+  name.append(createAvatar(user, avatar, "avatar message-avatar"));
+  const usernameLabel = document.createElement("span");
+  usernameLabel.textContent = user;
+  name.append(usernameLabel);
 
   const body = document.createElement("span");
   body.textContent = text;            // textContent keeps user input safe from HTML injection
@@ -112,6 +115,22 @@ function addSystemMessage(text) {
   line.textContent = text;
   messagesBox.appendChild(line);
   messagesBox.scrollTop = messagesBox.scrollHeight;
+}
+
+function createAvatar(name, url, className = "avatar") {
+  const avatar = document.createElement("span");
+  avatar.className = className;
+  avatar.setAttribute("aria-hidden", "true");
+  const initials = String(name || "?").trim().slice(0, 1).toUpperCase() || "?";
+  if (url && /^https:\/\//i.test(url)) {
+    const image = document.createElement("img");
+    image.src = url;
+    image.alt = "";
+    image.referrerPolicy = "no-referrer";
+    image.addEventListener("error", () => { avatar.textContent = initials; }, { once: true });
+    avatar.append(image);
+  } else avatar.textContent = initials;
+  return avatar;
 }
 
 socket.on("chat message", (message) => { allMessages.push(message); addMessage(message); });
@@ -214,9 +233,16 @@ socket.on("user list", (users) => {
   $("online-count").textContent = users.length;
   const list = $("user-list");
   list.innerHTML = "";
-  users.forEach((name) => {
+  users.forEach(({ name, avatar }) => {
     const li = document.createElement("li");
-    li.textContent = name;
+    li.append(createAvatar(name, avatar));
+    const label = document.createElement("span");
+    label.className = "online-name";
+    label.textContent = name;
+    const dot = document.createElement("span");
+    dot.className = "online-dot";
+    dot.setAttribute("aria-label", "Online");
+    li.append(label, dot);
     list.appendChild(li);
   });
 });
@@ -246,3 +272,7 @@ setTheme(saved);
 $("theme-btn").addEventListener("click", () => {
   setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
 });
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+}

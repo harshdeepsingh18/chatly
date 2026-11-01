@@ -61,6 +61,11 @@ io.use(async (socket, next) => {
   if (!username) return next(new Error("Choose a username before joining Chatly."));
   socket.data.authenticatedUser = user;
   socket.data.username = username;
+  const avatar = user.user_metadata?.avatar_url || user.user_metadata?.picture || "";
+  try {
+    const parsedAvatar = new URL(avatar);
+    socket.data.avatar = parsedAvatar.protocol === "https:" ? parsedAvatar.href : "";
+  } catch { socket.data.avatar = ""; }
   next();
 });
 app.get("/api/username", async (req, res) => {
@@ -167,7 +172,8 @@ io.on("connection", (socket) => {
     const name = socket.data.username;
     if (users.has(socket.id)) return;
 
-    users.set(socket.id, name);
+    const member = { name, avatar: socket.data.avatar };
+    users.set(socket.id, member);
     io.emit("system message", name + " joined the chat");
     sendUserList();
     socket.emit("chat history", messages);
@@ -175,11 +181,11 @@ io.on("connection", (socket) => {
 
   // 2. Someone sends a message -> broadcast to everyone (including the sender)
   socket.on("chat message", async (msg) => {
-    const user = users.get(socket.id);
+    const member = users.get(socket.id);
     const text = String((msg && msg.text) || "").trim().slice(0, 1000);
-    if (!user || !text) return;
+    if (!member || !text) return;
 
-    const message = { user, text, time: Date.now() };
+    const message = { user: member.name, text, time: Date.now(), avatar: member.avatar };
     try {
       await persistMessage(message);
     } catch (error) {
@@ -193,19 +199,19 @@ io.on("connection", (socket) => {
 
   // 3. Someone starts/stops typing -> tell everyone else
   socket.on("typing", (isTyping) => {
-    const user = users.get(socket.id);
-    if (!user) return;
-    socket.broadcast.emit("typing", { user, isTyping: Boolean(isTyping) });
+    const member = users.get(socket.id);
+    if (!member) return;
+    socket.broadcast.emit("typing", { user: member.name, isTyping: Boolean(isTyping) });
   });
 
   // 4. Someone closes the tab
   socket.on("disconnect", () => {
-    const user = users.get(socket.id);
-    if (!user) return;
+    const member = users.get(socket.id);
+    if (!member) return;
 
     users.delete(socket.id);
-    socket.broadcast.emit("typing", { user, isTyping: false });
-    io.emit("system message", user + " left the chat");
+    socket.broadcast.emit("typing", { user: member.name, isTyping: false });
+    io.emit("system message", member.name + " left the chat");
     sendUserList();
   });
 });

@@ -2,8 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#3b3fd8">
+  <meta name="description" content="Chatly is a friendly place to catch up with your people in real time.">
   <title>Chatly</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/logo.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,8 +16,14 @@
   <!-- LOGIN SCREEN -->
   <section id="login" class="screen">
     <div id="login-card" class="login-card">
-      <h1>Chatly</h1>
-      <p>Sign in with Google to open the chat.</p>
+      <div class="brand-lockup">
+        <img src="/logo.svg" alt="" class="brand-logo">
+        <div>
+          <h1>Chatly</h1>
+          <p>Good conversations start here.</p>
+        </div>
+      </div>
+      <p class="welcome-copy">Welcome. Sign in to join your people and catch up in real time.</p>
       <div id="google-signin">
         <button id="google-fallback" type="button">Continue with Google</button>
       </div>
@@ -42,7 +53,7 @@
       <header>
         <button id="menu-btn" aria-label="Show online users">☰</button>
         <div class="title">
-          <strong>Chatly</strong>
+          <strong><img src="/logo.svg" alt="" class="header-logo"> Chatly</strong>
           <small id="me"></small>
         </div>
         <button id="saved-btn" type="button" aria-pressed="false">☆ Saved</button>

@@ -11,6 +11,7 @@ Start the app by following the setup steps below, then open [Chatly](http://loca
 ## Features
 
 - Real-time messages and join/leave notifications
+- Profile photos and online indicators
 - Saved chat history shared with users and restored after server restarts
 - Online user list and typing indicators
 - Emoji picker
@@ -19,6 +20,7 @@ Start the app by following the setup steps below, then open [Chatly](http://loca
 - Account-specific saved messages
 - Light and dark themes
 - Responsive layout for mobile and desktop
+- Installable phone app with an offline-cached app shell
 
 ## Setup
 
@@ -38,6 +40,10 @@ Start the app by following the setup steps below, then open [Chatly](http://loca
 4. Open [http://localhost:3000](http://localhost:3000).
 
 The server uses port `3000` by default. Set the `PORT` environment variable to use a different port.
+
+## Install Chatly on a phone
+
+Open the site in your phone's browser and use its **Install app** or **Add to Home Screen** option. The app opens in a standalone window with the Chatly icon. Installation requires HTTPS on a deployed site; `localhost` works for local development. The app shell is cached for faster loading, while sign-in and live chat need an internet connection.
 
 ## Saved messages
 
