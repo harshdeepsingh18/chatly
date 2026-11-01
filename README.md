@@ -11,6 +11,7 @@ Start the app by following the setup steps below, then open [Chatly](http://loca
 ## Features
 
 - Real-time messages and join/leave notifications
+- Saved chat history shared with users and restored after server restarts
 - Online user list and typing indicators
 - Emoji picker
 - Light and dark themes
@@ -34,3 +35,7 @@ Start the app by following the setup steps below, then open [Chatly](http://loca
 4. Open [http://localhost:3000](http://localhost:3000).
 
 The server uses port `3000` by default. Set the `PORT` environment variable to use a different port.
+
+## Saved messages
+
+Chat messages are stored on the server in `data/messages.jsonl`. The file and folder are created automatically when the server starts. Messages are shared with everyone who joins and are kept across restarts. Back up this file if you want to preserve the chat history when moving the app to another server.

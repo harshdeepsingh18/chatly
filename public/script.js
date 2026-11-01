@@ -67,7 +67,9 @@ function addSystemMessage(text) {
 }
 
 socket.on("chat message", addMessage);
+socket.on("chat history", (messages) => messages.forEach(addMessage));
 socket.on("system message", addSystemMessage);
+socket.on("message error", addSystemMessage);
 
 // ----- 4. Typing indicator -----
 let typingTimer;
