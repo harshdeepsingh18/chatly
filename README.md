@@ -17,6 +17,7 @@ Start the app by following the setup steps below, then open [Chatly](http://loca
 - Separate `#general`, `#doubts`, and `#notes` rooms
 - Private one-to-one chats from the online list
 - Voice and video calls in direct chats
+- Games hub with multiplayer Tic Tac Toe, Snakes and Ladders, Ludo, Chess, and Snake Arena
 - Image and document sharing
 - Search and pinned messages per conversation
 - `@aura` study helper powered by Gemini's free tier (OpenAI optional)
@@ -54,16 +55,16 @@ Open the site in your phone's browser and use its **Install app** or **Add to Ho
 
 ## Saved messages
 
-Chat messages are stored on the server in `data/messages.jsonl`. The file and folder are created automatically when the server starts. Messages are shared with everyone who joins and are kept across restarts. Back up this file if you want to preserve the chat history when moving the app to another server.
+When Supabase Database is configured, messages, profiles, groups, saved messages, pins, reactions, game state, upload metadata, and uploaded files are stored in Supabase. Without `SUPABASE_SERVICE_ROLE_KEY`, local development uses the `data/` directory; that local fallback is not persistent storage on Vercel.
 
-Signed-in users can save individual messages with the **Save** button. Bookmarks are private to each Supabase account and stored in `data/saved-messages.json`.
+Signed-in users can save individual messages with the **Save** button. Bookmarks are private to each Supabase account.
 
 ## Supabase Google sign-in and sign-up
 
 1. Create a Supabase project and copy its **Project URL** and **anon/public key** from **Project Settings → API**.
 2. In **Authentication → Providers → Google**, enable Google and enter the OAuth client ID and secret from a Google Cloud **Web application** credential. Add the callback URL shown by Supabase to the OAuth client's **Authorized redirect URIs**.
 3. In Supabase **Authentication → URL Configuration**, set the Site URL to `http://localhost:3000` and add it to the allowed redirect URLs. Use your deployed site URL when deploying.
-4. Copy `.env.example` to `.env`, replace the placeholders with your Supabase Project URL and anon/public key, and restart Chatly:
+4. Copy `.env.example` to `.env`, enter the Supabase Project URL and anon/public key, and restart Chatly:
 
 ```powershell
 Copy-Item .env.example .env
@@ -71,17 +72,50 @@ Copy-Item .env.example .env
 npm start
 ```
 
-The **Continue with Google** button uses Supabase OAuth. First-time Google sign-ins create a Supabase user automatically; returning users sign in to the same account. Choose a unique username after the first sign-in; it stays reserved to that account across restarts in `data/usernames.json`, and returning users go straight to chat. Open **Profile** in the app to view the Google account email, change the username, or sign out. The chat server verifies both the Supabase session and the account's username before accepting a Socket.IO connection. The same session authorizes private saved-message requests. Keep the `data` directory persistent. Never put a Supabase service-role key in the browser or in these environment variables; the anon/public key is intended for client use.
+The **Continue with Google** button uses Supabase OAuth. First-time Google sign-ins create a Supabase user automatically; returning users sign in to the same account. Choose a unique username after the first sign-in. Open **Profile** in the app to view the Google account email, change the username, or sign out. The chat server verifies the Supabase session and username before accepting a Socket.IO connection; the same session authorizes private saved-message requests.
+
+## Supabase persistence
+
+Supabase Auth alone does not provide durable Chatly data storage. To enable the database-backed store:
+
+1. Review `supabase/migrations/20261101190000_chatly_persistence.sql`, then run it manually in the Supabase SQL Editor. It creates the Chatly profiles, conversations, messages, and app-state tables and a private uploads bucket. The migration is not run automatically.
+2. Set `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` on the persistent Node.js server. The service-role key is server-only; never add it to frontend code or Vercel public variables.
+3. If migrating an existing local installation, back up its `data/` directory, configure the database, and run `npm run import:local-data` once from that installation. The script imports profiles, groups, messages, saved state, and uploaded bytes. It does not delete or modify the local files. It is an explicit import, not an automatic startup action.
+
+Without a service-role key, `npm start` retains the local `data/` storage fallback for development. Production startup requires Supabase persistence to be configured.
+
+## Vercel frontend and persistent server
+
+Chatly uses Socket.IO for live presence, calls, and games, so deploy the Node.js server to a host that supports long-running Socket.IO connections. Vercel serves the static frontend and its small runtime-config/Socket.IO-client functions; it is not the realtime server.
+
+Configure these values on the persistent Node.js host:
+
+```env
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-supabase-anon-or-publishable-key
+SUPABASE_SERVICE_ROLE_KEY=your-server-only-service-role-key
+CHATLY_API_URL=https://your-chatly-server.example
+CHATLY_REALTIME_URL=https://your-chatly-server.example
+CHATLY_ALLOWED_ORIGINS=https://your-chatly-site.vercel.app
+```
+
+Set `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `CHATLY_API_URL`, and `CHATLY_REALTIME_URL` as Vercel environment variables too. `CHATLY_API_URL` and `CHATLY_REALTIME_URL` should point to the persistent server. Add any custom Vercel domain to `CHATLY_ALLOWED_ORIGINS` on the server. Keep the service-role key only on the server. Update Supabase Auth's Site URL and allowed redirect URLs to the deployed frontend URL.
+
+`server.js` exports the Express app and only starts listening when run directly. This supports local development and Node hosting without opening a listening socket when the app is imported.
 
 ## Rooms, direct messages, and files
 
-Chat history is separated into `#general`, `#doubts`, and `#notes`. Create member groups from the sidebar, invite registered Chatly members, and add more members later from the group details panel. Group membership and messages persist in `data/groups.json` and `data/messages.jsonl`. Click an online username to open a private one-to-one conversation. Upload images, PDFs, text files, and DOCX notes up to 12 MB; shared photos and files appear in the conversation details panel. Uploads, message history, saved messages, groups, and pins are stored in `data/`; keep this folder persistent and backed up.
+Chat history is separated into `#general`, `#doubts`, and `#notes`. Create member groups from the sidebar, invite registered Chatly members, and add more members later from the group details panel. Click an online username to open a private one-to-one conversation. Upload images, PDFs, text files, and DOCX notes up to 12 MB; shared photos and files appear in the conversation details panel. Supabase Storage keeps uploaded bytes private, and API routes authorize access to each file.
 
 Use the search field to filter the open conversation. Pin messages to keep them at the top of that conversation. Delete messages with the three-dot menu; the chat shows who deleted them, and deleting a message with an attachment also deletes its uploaded file. Message sounds play for new messages, and unread messages update the browser tab title.
 
 ## Voice and video calls
 
 Open a direct chat and choose **Call** or **Video**. Both people need to allow microphone access; video calls also need camera access. Browsers require HTTPS for camera and microphone access, with `localhost` allowed for development. Calls use peer-to-peer WebRTC with STUN; some restrictive networks may also require a TURN relay server.
+
+## Games
+
+Open **Games** from the sidebar, then choose an online friend or open a direct chat. Pick a game to send an invitation; multiplayer games are played in real time.
 
 ## Aura study helper
 

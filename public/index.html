@@ -118,11 +118,15 @@
       </div>
       <section id="games-section" class="games-section hidden" aria-labelledby="games-title">
         <div class="games-page-heading">
-          <div class="games-kicker"><span></span> CHATLY ARCADE</div>
+          <div class="games-heading-top">
+            <div class="games-kicker"><span></span> CHATLY ARCADE</div>
+            <button id="games-back-btn" class="games-back-btn" type="button">← Back to chat</button>
+          </div>
           <h1 id="games-title">Play something together.</h1>
           <p>Pick a game, challenge a friend, and make your next chat a little more fun.</p>
         </div>
         <div id="games-opponent" class="games-opponent" aria-live="polite"></div>
+        <p id="games-feedback" class="games-feedback" role="status" aria-live="polite"></p>
         <div id="tic-tac-toe-content" class="games-content"></div>
       </section>
     </main>

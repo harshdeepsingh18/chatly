@@ -1,5 +1,7 @@
-// Connects to the Socket.IO server that serves this page
-const socket = io({ autoConnect: false });
+const apiBaseUrl = (window.CHATLY_API_URL || "").replace(/\/$/, "");
+const realtimeUrl = (window.CHATLY_REALTIME_URL || "").replace(/\/$/, "");
+const apiUrl = (path) => `${apiBaseUrl}${path}`;
+const socket = io(realtimeUrl || undefined, { autoConnect: false });
 let username = "";
 let currentUserId = "";
 let currentProfile = null;
@@ -141,7 +143,7 @@ $("message-form").addEventListener("submit", async (e) => {
     let attachment;
     if (file) {
       if (file.size > 12 * 1024 * 1024) throw new Error("Files must be 12 MB or smaller.");
-      const response = await fetch("/api/uploads", {
+      const response = await fetch(apiUrl("/api/uploads"), {
         method: "POST",
         headers: {
           "Content-Type": "application/octet-stream",
@@ -328,7 +330,7 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
     if (!authToken) { addSystemMessage("Sign in with Google to save messages."); return; }
     save.disabled = true;
     try {
-      const response = await fetch("/api/saved-messages", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ message, saved: !isSaved }) });
+      const response = await fetch(apiUrl("/api/saved-messages"), { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ message, saved: !isSaved }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not update saved messages.");
       savedItems = result.saved;
@@ -389,7 +391,7 @@ async function showAttachment(attachment, container) {
   try {
     let url = attachmentUrls.get(attachment.id);
     if (!url) {
-      const response = await fetch(`/api/uploads/${encodeURIComponent(attachment.id)}`, { headers: { Authorization: `Bearer ${authToken}` } });
+      const response = await fetch(apiUrl(`/api/uploads/${encodeURIComponent(attachment.id)}`), { headers: { Authorization: `Bearer ${authToken}` } });
       if (!response.ok) throw new Error("Attachment unavailable");
       url = URL.createObjectURL(await response.blob());
       attachmentUrls.set(attachment.id, url);
@@ -461,7 +463,7 @@ function playMessageSound() {
 }
 let allMessages = [];
 function loadSavedMessages() {
-  return fetch("/api/saved-messages", { headers: { Authorization: `Bearer ${authToken}` } }).then(async (response) => {
+  return fetch(apiUrl("/api/saved-messages"), { headers: { Authorization: `Bearer ${authToken}` } }).then(async (response) => {
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Could not load saved messages.");
     savedItems = result;
@@ -509,6 +511,13 @@ socket.on("pinned messages", ({ conversation, messages }) => {
   renderMessages();
 });
 socket.on("direct opened", ({ user }) => {
+  if (currentDirectUser?.id !== user.id) {
+    ticTacToeState = null;
+    partyGameState = null;
+    partyGameStates.clear();
+    chessSelectedSquare = null;
+    chessLegalSquares = [];
+  }
   currentDirectUser = user;
   $("conversation-name").textContent = `Direct message with ${user.name}`;
   $("call-controls").classList.remove("hidden");
@@ -516,6 +525,11 @@ socket.on("direct opened", ({ user }) => {
   document.querySelectorAll(".room-button").forEach((button) => button.classList.remove("active"));
   document.querySelectorAll(".group-button").forEach((button) => button.classList.remove("active"));
   updateDetailsPanel();
+  if (!$("games-section").classList.contains("hidden")) {
+    renderGamesView();
+    if (selectedPartyGame === "tic-tac-toe") socket.emit("tic-tac-toe get state");
+    else socket.emit("party-game get", selectedPartyGame);
+  }
 });
 socket.on("tic-tac-toe state", (game) => {
   if (game && game.conversation !== currentConversation) {
@@ -524,6 +538,7 @@ socket.on("tic-tac-toe state", (game) => {
   }
   const previous = ticTacToeState;
   ticTacToeState = game;
+  if (game) setGamesFeedback("");
   if (game?.status === "pending" && game.invitedBy !== currentUserId && previous?.status !== "pending") {
     addSystemMessage(`${currentDirectUser?.name || "Your friend"} invited you to play Tic Tac Toe.`);
   }
@@ -535,6 +550,7 @@ socket.on("party game state", (game) => {
     return;
   }
   const previous = partyGameState;
+  setGamesFeedback("");
   partyGameStates.set(game.type, game);
   if (game.type !== selectedPartyGame) return;
   partyGameState = game;
@@ -546,12 +562,96 @@ socket.on("party game state", (game) => {
   renderTicTacToe();
 });
 const gameLabels = { "tic-tac-toe": "Tic Tac Toe", "snakes-ladders": "Snakes and Ladders", ludo: "Ludo", chess: "Chess", "snake-arena": "Snake Arena" };
+const gameDetails = {
+  "tic-tac-toe": { icon: "⭕", description: "A quick classic. Get three in a row." },
+  "snakes-ladders": { icon: "🪜", description: "Roll, climb, and race to the finish." },
+  ludo: { icon: "🎲", description: "Bring your tokens home to win." },
+  chess: { icon: "♟️", description: "A thoughtful match, move by move." },
+  "snake-arena": { icon: "🐍", description: "Grow your snake and outlast your rival." }
+};
+function setGamesFeedback(message, isError = false) {
+  const feedback = $("games-feedback");
+  feedback.textContent = message;
+  feedback.classList.toggle("success", Boolean(message) && !isError);
+}
+function requestGameInvite(type, button) {
+  const label = button.textContent;
+  setGamesFeedback("");
+  button.disabled = true;
+  button.textContent = "Sending invite…";
+  const event = type === "tic-tac-toe" ? "tic-tac-toe invite" : "party-game invite";
+  const args = type === "tic-tac-toe" ? [] : [type];
+  socket.timeout(8000).emit(event, ...args, (timeoutError, result) => {
+    if (!timeoutError && result?.ok) {
+      if (button.isConnected) {
+        button.disabled = false;
+        button.textContent = label;
+      }
+      setGamesFeedback(`Invite sent to ${currentDirectUser?.name || "your friend"}.`);
+      return;
+    }
+    if (button.isConnected) {
+      button.disabled = false;
+      button.textContent = label;
+    }
+    setGamesFeedback(timeoutError ? "The server did not respond. Check your connection and try again." : result?.error || "Could not send the invite. Please try again.", true);
+  });
+}
 socket.on("party-game legal", ({ conversation, from, moves }) => {
   if (conversation !== currentConversation) return;
   chessSelectedSquare = from;
   chessLegalSquares = moves;
   renderTicTacToe();
 });
+function renderGamesView() {
+  const opponent = $("games-opponent");
+  opponent.replaceChildren();
+
+  if (currentDirectUser) {
+    const card = document.createElement("div");
+    card.className = "games-opponent-card";
+    card.append(createAvatar(currentDirectUser.name, currentDirectUser.avatar));
+    const copy = document.createElement("div");
+    copy.className = "games-opponent-copy";
+    const name = document.createElement("strong");
+    name.textContent = `Playing with ${currentDirectUser.name}`;
+    const hint = document.createElement("small");
+    hint.textContent = "Choose a game below to invite them.";
+    copy.append(name, hint);
+    card.append(copy);
+    opponent.append(card);
+    return;
+  }
+
+  const empty = document.createElement("div");
+  empty.className = "games-opponent-empty";
+  const title = document.createElement("strong");
+  title.textContent = "Choose a friend to play with";
+  const hint = document.createElement("p");
+  hint.textContent = onlineUserCache.length
+    ? "Pick someone online, or open a direct chat with a friend first."
+    : "Start a direct chat with a friend. They’ll show up here when they’re online.";
+  empty.append(title, hint);
+
+  if (onlineUserCache.length) {
+    const choices = document.createElement("div");
+    choices.className = "games-opponent-choices";
+    onlineUserCache.forEach((user) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "games-opponent-choice";
+      button.textContent = `${user.name} · Invite`;
+      button.addEventListener("click", () => {
+        socket.emit("open direct", user.id);
+        sidebar.classList.remove("open");
+      });
+      choices.append(button);
+    });
+    empty.append(choices);
+  }
+
+  opponent.append(empty);
+}
 function renderTicTacToe() {
   const content = $("tic-tac-toe-content");
   if (!content) return;
@@ -562,16 +662,38 @@ function renderTicTacToe() {
     const choice = document.createElement("button");
     choice.type = "button";
     choice.className = "party-game-choice" + (selectedPartyGame === type ? " selected" : "");
-    choice.textContent = label;
+    const icon = document.createElement("span");
+    icon.className = "game-card-icon";
+    icon.textContent = gameDetails[type].icon;
+    const name = document.createElement("span");
+    name.className = "game-card-name";
+    name.textContent = label;
+    const description = document.createElement("span");
+    description.className = "game-card-description";
+    description.textContent = gameDetails[type].description;
+    choice.append(icon, name, description);
+    choice.setAttribute("aria-pressed", String(selectedPartyGame === type));
     choice.addEventListener("click", () => {
       selectedPartyGame = type;
-      if (type === "tic-tac-toe") socket.emit("tic-tac-toe get state");
-      else { partyGameState = partyGameStates.get(type) || null; socket.emit("party-game get", type); }
+      if (type === "tic-tac-toe") {
+        if (currentDirectUser) socket.emit("tic-tac-toe get state");
+      } else {
+        partyGameState = partyGameStates.get(type) || null;
+        if (currentDirectUser) socket.emit("party-game get", type);
+      }
+      renderGamesView();
       renderTicTacToe();
     });
     picker.append(choice);
   });
   content.append(picker);
+  if (!currentDirectUser) {
+    const note = document.createElement("p");
+    note.className = "games-empty-note";
+    note.textContent = "Select a friend above to start or continue a multiplayer game.";
+    content.append(note);
+    return;
+  }
   if (selectedPartyGame !== "tic-tac-toe") {
     renderPartyGame(content, partyGameStates.get(selectedPartyGame) || partyGameState);
     return;
@@ -597,7 +719,7 @@ function renderTicTacToe() {
     invite.type = "button";
     invite.className = "tic-tac-toe-primary";
     invite.textContent = game?.status === "finished" ? "Play again" : "Invite to play";
-    invite.addEventListener("click", () => socket.emit("tic-tac-toe invite"));
+    invite.addEventListener("click", () => requestGameInvite("tic-tac-toe", invite));
     content.append(invite);
     return;
   }
@@ -676,7 +798,7 @@ function renderPartyGame(content, game) {
     else if (game?.status === "declined") status.textContent = "Invite declined. You can ask again later.";
     else status.textContent = `Invite ${friend?.name || "your friend"} to play ${gameLabels[type]}.`;
     const invite = document.createElement("button"); invite.type = "button"; invite.className = "tic-tac-toe-primary"; invite.textContent = game?.status === "finished" ? "Play again" : "Invite to play";
-    invite.addEventListener("click", () => socket.emit("party-game invite", type)); content.append(invite); return;
+    invite.addEventListener("click", () => requestGameInvite(type, invite)); content.append(invite); return;
   }
   if (game.status === "pending") {
     const invited = game.invitedBy !== currentUserId;
@@ -766,23 +888,36 @@ function renderPartyGame(content, game) {
   }
 }
 window.addEventListener("keydown", (event) => {
-  if ($("tic-tac-toe-modal").classList.contains("hidden") || selectedPartyGame !== "snake-arena" || partyGameState?.status !== "playing") return;
+  if ($("games-section").classList.contains("hidden") || selectedPartyGame !== "snake-arena" || partyGameState?.status !== "playing") return;
   const direction = { ArrowUp:[0,-1], w:[0,-1], ArrowDown:[0,1], s:[0,1], ArrowLeft:[-1,0], a:[-1,0], ArrowRight:[1,0], d:[1,0] }[event.key];
   if (!direction) return;
   event.preventDefault();
   socket.emit("party-game direction", { dx: direction[0], dy: direction[1] });
 });
-$("tic-tac-toe-btn").addEventListener("click", () => {
-  if (!currentDirectUser) return;
-  $("tic-tac-toe-modal").classList.remove("hidden");
-  if (selectedPartyGame === "tic-tac-toe") socket.emit("tic-tac-toe get state");
-  else socket.emit("party-game get", selectedPartyGame);
+$("games-nav-btn").addEventListener("click", () => openGamesSection());
+$("tic-tac-toe-btn").addEventListener("click", () => openGamesSection());
+$("games-back-btn").addEventListener("click", () => closeGamesSection());
+function openGamesSection() {
+  $("chat").classList.add("games-open");
+  $("conversation-view").classList.add("hidden");
+  $("games-section").classList.remove("hidden");
+  $("games-nav-btn").classList.add("active");
+  $("games-nav-btn").setAttribute("aria-current", "page");
+  sidebar.classList.remove("open");
+  renderGamesView();
   renderTicTacToe();
-});
-$("tic-tac-toe-close").addEventListener("click", () => $("tic-tac-toe-modal").classList.add("hidden"));
-$("tic-tac-toe-modal").addEventListener("click", (event) => {
-  if (event.target === $("tic-tac-toe-modal")) $("tic-tac-toe-modal").classList.add("hidden");
-});
+  if (currentDirectUser) {
+    if (selectedPartyGame === "tic-tac-toe") socket.emit("tic-tac-toe get state");
+    else socket.emit("party-game get", selectedPartyGame);
+  }
+}
+function closeGamesSection() {
+  $("chat").classList.remove("games-open");
+  $("conversation-view").classList.remove("hidden");
+  $("games-section").classList.add("hidden");
+  $("games-nav-btn").classList.remove("active");
+  $("games-nav-btn").setAttribute("aria-current", "false");
+}
 socket.on("direct notification", ({ conversation, fromId, fromName }) => {
   if (fromId === currentUserId) return;
   if (conversation === currentConversation) return;
@@ -822,6 +957,7 @@ socket.on("message error", addSystemMessage);
 
 document.querySelectorAll(".room-button").forEach((button) => {
   button.addEventListener("click", () => {
+    closeGamesSection();
     currentDirectUser = null;
     $("call-controls").classList.add("hidden");
     currentConversation = button.dataset.room;
@@ -841,7 +977,7 @@ document.querySelectorAll(".room-button").forEach((button) => {
 async function loadGroups() {
   if (!authToken) return;
   try {
-    const response = await fetch("/api/groups", { headers: { Authorization: `Bearer ${authToken}` } });
+    const response = await fetch(apiUrl("/api/groups"), { headers: { Authorization: `Bearer ${authToken}` } });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Could not load groups.");
     myGroups = result;
@@ -873,6 +1009,7 @@ async function loadGroups() {
   } catch (error) { addSystemMessage(error.message); }
 }
 function openGroup(group) {
+  closeGamesSection();
   currentDirectUser = null;
   $("call-controls").classList.add("hidden");
   currentConversation = `group:${group.id}`;
@@ -900,7 +1037,7 @@ async function showGroupMembersDialog(group = null) {
   $("group-status").textContent = "Loading members…";
   $("group-member-options").replaceChildren();
   try {
-    const response = await fetch("/api/group-members", { headers: { Authorization: `Bearer ${authToken}` } });
+    const response = await fetch(apiUrl("/api/group-members"), { headers: { Authorization: `Bearer ${authToken}` } });
     const availableMembers = await response.json();
     if (!response.ok) throw new Error(availableMembers.error || "Could not load members.");
     const existingIds = new Set(group?.memberIds || []);
@@ -944,7 +1081,7 @@ $("create-group-form").addEventListener("submit", async (event) => {
   try {
     const url = groupMode ? `/api/groups/${encodeURIComponent(editingGroupId)}/members` : "/api/groups";
     const body = groupMode ? { memberIds } : { name: $("group-name").value.trim(), memberIds };
-    const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify(body) });
+    const response = await fetch(apiUrl(url), { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify(body) });
     const group = await response.json();
     if (!response.ok) throw new Error(group.error || (groupMode ? "Could not add members." : "Could not create group."));
     $("group-modal").classList.add("hidden");
@@ -987,12 +1124,12 @@ async function resumeSupabaseSession() {
   $("auth-status").textContent = `Signed in as ${user.email}`;
   let hasSavedUsername = false;
   try {
-    const response = await fetch("/api/username", { headers: { Authorization: `Bearer ${authToken}` } });
+    const response = await fetch(apiUrl("/api/username"), { headers: { Authorization: `Bearer ${authToken}` } });
     const result = await response.json();
     if (response.ok && result.username) { username = result.username; hasSavedUsername = true; }
   } catch {}
   try {
-    const avatarResponse = await fetch("/api/avatar", { headers: { Authorization: `Bearer ${authToken}` } });
+    const avatarResponse = await fetch(apiUrl("/api/avatar"), { headers: { Authorization: `Bearer ${authToken}` } });
     const avatarResult = await avatarResponse.json();
     if (avatarResponse.ok) {
       currentProfile.avatarId = avatarResult.avatarId || "";
@@ -1019,7 +1156,7 @@ $("username-form").addEventListener("submit", async (event) => {
   submit.disabled = true;
   status.textContent = "Checking username…";
   try {
-    const response = await fetch("/api/username", {
+    const response = await fetch(apiUrl("/api/username"), {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
       body: JSON.stringify({ username: chosenName })
@@ -1078,7 +1215,7 @@ function buildAvatarGrid() {
     button.dataset.avatarId = avatarId;
     button.setAttribute("aria-label", `Choose illustrated avatar ${index}`);
     const image = document.createElement("img");
-    image.src = `/api/avatars/${avatarId}.svg`;
+    image.src = apiUrl(`/api/avatars/${avatarId}.svg`);
     image.alt = "";
     image.loading = "lazy";
     button.append(image);
@@ -1091,7 +1228,7 @@ async function saveProfileAvatar(avatarId) {
   status.textContent = "Saving avatar…";
   document.querySelectorAll(".avatar-choice").forEach((button) => { button.disabled = true; });
   try {
-    const response = await fetch("/api/avatar", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ avatarId }) });
+    const response = await fetch(apiUrl("/api/avatar"), { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ avatarId }) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Could not save avatar.");
     currentProfile.avatarId = result.avatarId;
@@ -1133,7 +1270,7 @@ $("settings-username-form").addEventListener("submit", async (event) => {
   save.disabled = true;
   status.textContent = "Saving username…";
   try {
-    const response = await fetch("/api/username", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ username: $("settings-username").value.trim() }) });
+    const response = await fetch(apiUrl("/api/username"), { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ username: $("settings-username").value.trim() }) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Could not save that username.");
     username = result.username;
@@ -1203,6 +1340,7 @@ socket.on("user list", (users) => {
     list.appendChild(li);
   });
   updateDetailsPanel();
+  if (!$("games-section").classList.contains("hidden") && !currentDirectUser) renderGamesView();
 });
 
 function updateDetailsPanel() {

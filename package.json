@@ -4,7 +4,11 @@
   "description": "Real-time chat website",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "import:local-data": "node scripts/import-local-data.js"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "dependencies": {
     "express": "^4.21.0",

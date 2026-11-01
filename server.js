@@ -3,8 +3,8 @@ const http = require("http");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { readFileSync } = require("node:fs");
-const { appendFile, mkdir, readFile, unlink, writeFile } = require("node:fs/promises");
 const { Server } = require("socket.io");
+const { createSupabaseStore } = require("./supabase-store");
 
 function loadEnvFile(file) {
   let contents;
@@ -23,7 +23,14 @@ loadEnvFile(path.join(__dirname, ".env"));
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const allowedOrigins = (process.env.CHATLY_ALLOWED_ORIGINS || process.env.CHATLY_WEB_ORIGIN || "")
+  .split(",").map((origin) => origin.trim()).filter(Boolean);
+const io = new Server(server, {
+  cors: {
+    origin: ["http://localhost:3000", "http://127.0.0.1:3000", ...allowedOrigins],
+    methods: ["GET", "POST"]
+  }
+});
 const dataDirectory = path.join(__dirname, "data");
 const messageFile = path.join(dataDirectory, "messages.jsonl");
 const savedFile = path.join(dataDirectory, "saved-messages.json");
@@ -37,6 +44,15 @@ const partyGamesFile = path.join(dataDirectory, "party-games.json");
 const uploadDirectory = path.join(dataDirectory, "uploads");
 const supabaseUrl = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "";
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const apiUrl = (process.env.CHATLY_API_URL || "").replace(/\/$/, "");
+const realtimeUrl = (process.env.CHATLY_REALTIME_URL || "").replace(/\/$/, "");
+const supabaseStore = createSupabaseStore({ url: supabaseUrl, serviceKey: supabaseServiceRoleKey, dataDirectory });
+const readFile = (...args) => supabaseStore.readFile(...args);
+const writeFile = (...args) => supabaseStore.writeFile(...args);
+const appendFile = (...args) => supabaseStore.appendFile(...args);
+const mkdir = (...args) => supabaseStore.mkdir(...args);
+const unlink = (...args) => supabaseStore.unlink(...args);
 const configuredOpenAiApiKey = process.env.OPENAI_API_KEY || "";
 const openAiApiKey = configuredOpenAiApiKey.toLowerCase().startsWith("your-") ? "" : configuredOpenAiApiKey;
 const openAiModel = process.env.OPENAI_MODEL || "gpt-4.1-mini";
@@ -45,11 +61,30 @@ const geminiApiKey = configuredGeminiApiKey.toLowerCase().startsWith("your-") ? 
 const geminiModel = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 const chatRooms = ["general", "doubts", "notes"];
 
-// Serve index.html, style.css and script.js from the "public" folder
-app.use(express.static("public"));
+app.use((req, res, next) => {
+  const origin = req.get("origin");
+  if (origin && allowedOrigins.includes(origin)) {
+    res.set("Access-Control-Allow-Origin", origin);
+    res.set("Vary", "Origin");
+    res.set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Chat-Conversation, X-File-Name, X-File-Type");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  }
+  if (req.method === "OPTIONS") return res.sendStatus(origin && allowedOrigins.includes(origin) ? 204 : 403);
+  next();
+});
+app.use(express.static(path.join(__dirname, "public")));
 app.use(express.json({ limit: "8kb" }));
 app.get("/config.js", (_req, res) => {
-  res.type("application/javascript").send(`window.CHATLY_SUPABASE_URL = ${JSON.stringify(supabaseUrl)}; window.CHATLY_SUPABASE_ANON_KEY = ${JSON.stringify(supabaseAnonKey)}; window.CHATLY_ROOMS = ${JSON.stringify(chatRooms)}; window.CHATLY_AURA_ENABLED = ${Boolean(openAiApiKey || geminiApiKey)};`);
+  res.type("application/javascript").send(`window.CHATLY_SUPABASE_URL = ${JSON.stringify(supabaseUrl)}; window.CHATLY_SUPABASE_ANON_KEY = ${JSON.stringify(supabaseAnonKey)}; window.CHATLY_ROOMS = ${JSON.stringify(chatRooms)}; window.CHATLY_AURA_ENABLED = ${Boolean(openAiApiKey || geminiApiKey)}; window.CHATLY_API_URL = ${JSON.stringify(apiUrl)}; window.CHATLY_REALTIME_URL = ${JSON.stringify(realtimeUrl)};`);
+});
+app.get("/socket.io/socket.io.js", (_req, res) => res.sendFile(require.resolve("socket.io/client-dist/socket.io.js")));
+let initializationPromise;
+function initializeStorage() {
+  if (!initializationPromise) initializationPromise = loadMessages();
+  return initializationPromise;
+}
+app.use((req, res, next) => {
+  initializeStorage().then(() => next(), next);
 });
 
 let savedMessages = {};
@@ -76,7 +111,7 @@ const avatarBackgrounds = ["#ed5262", "#68b9a2", "#f0a642", "#a98be8", "#5ba9d3"
 const avatarSkins = ["#f6d1b1", "#e8b995", "#d69a70", "#bd805c", "#9b6249", "#f0c7a0", "#81523e", "#613e33"];
 const avatarHairs = ["#241d22", "#3b2a24", "#6d422d", "#ad6236", "#d0a34f", "#41454c", "#8a5b72", "#252e3c", "#4b4734", "#b8b3ac"];
 const avatarClothes = ["#6556a5", "#337f83", "#b7535d", "#e18449", "#4e719e", "#57916d", "#353b49", "#d16e9b", "#ba9146", "#609caa"];
-const avatarUrlFor = (avatarId) => avatarId ? `/api/avatars/${avatarId}.svg` : "";
+const avatarUrlFor = (avatarId) => avatarId ? `${apiUrl}/api/avatars/${avatarId}.svg` : "";
 function makeAvatarSvg(index) {
   const pick = (items, factor) => items[(index * factor + Math.floor(index / 7)) % items.length];
   const bg = pick(avatarBackgrounds, 5);
@@ -360,17 +395,20 @@ app.post("/api/uploads", express.raw({ type: "application/octet-stream", limit: 
   catch { name = "attachment"; }
   const id = crypto.randomUUID();
   const metadata = { id, name: name || "attachment", type, size: buffer.length, conversation, uploaderId: user.id };
-  await writeFile(path.join(uploadDirectory, id), buffer);
-  const operation = uploadQueue.then(async () => {
-    const next = { ...uploads, [id]: metadata };
-    await writeFile(uploadsFile, JSON.stringify(next), "utf8");
-    uploads = next;
-  });
-  uploadQueue = operation.catch((error) => console.error("Could not save upload metadata:", error));
   try {
+    await writeFile(path.join(uploadDirectory, id), buffer, supabaseStore.enabled ? type : undefined);
+    const operation = uploadQueue.then(async () => {
+      const next = { ...uploads, [id]: metadata };
+      await writeFile(uploadsFile, JSON.stringify(next), "utf8");
+      uploads = next;
+    });
+    uploadQueue = operation.catch((error) => console.error("Could not save upload metadata:", error));
     await operation;
     res.json({ id, name: metadata.name, type, size: metadata.size });
-  } catch { res.status(500).json({ error: "Could not save the uploaded file." }); }
+  } catch (error) {
+    console.error("Could not save uploaded file:", error);
+    res.status(500).json({ error: "Could not save the uploaded file." });
+  }
 });
 app.get("/api/uploads/:id", async (req, res) => {
   const user = await getSupabaseUser(req);
@@ -379,7 +417,12 @@ app.get("/api/uploads/:id", async (req, res) => {
   if (!file || !canAccessConversation(file.conversation, user.id)) return res.sendStatus(404);
   res.set("X-Content-Type-Options", "nosniff");
   res.set("Content-Disposition", `${file.type.startsWith("image/") || file.type.startsWith("audio/") || file.type === "application/pdf" ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(file.name)}`);
-  res.type(file.type).sendFile(path.join(uploadDirectory, file.id));
+  try {
+    res.type(file.type).send(await readFile(path.join(uploadDirectory, file.id)));
+  } catch (error) {
+    console.error("Could not read uploaded file:", error);
+    res.status(500).json({ error: "Could not load this attachment." });
+  }
 });
 
 // socket.id -> username (everyone who is online right now)
@@ -670,14 +713,22 @@ io.on("connection", (socket) => {
     socket.emit("tic-tac-toe state", ticTacToeGames[conversation] || null);
   });
 
-  socket.on("tic-tac-toe invite", async () => {
+  socket.on("tic-tac-toe invite", async (acknowledge) => {
+    const respond = (result) => { if (typeof acknowledge === "function") acknowledge(result); };
     const conversation = socket.data.activeConversation;
-    if (!isDirectConversationFor(conversation, socket.data.userId)) return;
+    if (!isDirectConversationFor(conversation, socket.data.userId)) {
+      respond({ ok: false, error: "Open a direct chat with your friend before inviting them." });
+      return;
+    }
     const peerId = conversation.split(":").slice(1).find((id) => id !== socket.data.userId);
-    if (!peerId || !usernameByUser.has(peerId)) return;
+    if (!peerId || !usernameByUser.has(peerId)) {
+      respond({ ok: false, error: "That friend is no longer available." });
+      return;
+    }
     const previous = ticTacToeGames[conversation];
     if (previous?.status === "playing" || previous?.status === "pending") {
       socket.emit("tic-tac-toe state", previous);
+      respond({ ok: true });
       return;
     }
     const scores = previous?.scores || {};
@@ -687,8 +738,14 @@ io.on("connection", (socket) => {
       board: Array(9).fill(null), turn: null, status: "pending", winner: null, scores
     };
     ticTacToeGames[conversation] = game;
-    try { await persistTicTacToeGames(); emitTicTacToeGame(game); }
-    catch { socket.emit("message error", "Could not save the game invitation. Please try again."); }
+    try {
+      await persistTicTacToeGames();
+      emitTicTacToeGame(game);
+      respond({ ok: true });
+    } catch {
+      socket.emit("message error", "Could not save the game invitation. Please try again.");
+      respond({ ok: false, error: "Could not save the game invitation. Please try again." });
+    }
   });
 
   socket.on("tic-tac-toe accept", async () => {
@@ -740,21 +797,42 @@ io.on("connection", (socket) => {
     const game = partyGames[partyGameKey(conversation, type)];
     socket.emit("party game state", game || { conversation, type, players: [socket.data.userId], status: "idle", scores: {} });
   });
-  socket.on("party-game invite", async (type) => {
+  socket.on("party-game invite", async (type, acknowledge) => {
+    const respond = (result) => { if (typeof acknowledge === "function") acknowledge(result); };
     const conversation = socket.data.activeConversation;
     const allowed = new Set(["snakes-ladders", "ludo", "chess", "snake-arena"]);
-    if (!allowed.has(type) || !isDirectConversationFor(conversation, socket.data.userId)) return;
+    if (!allowed.has(type)) {
+      respond({ ok: false, error: "Choose a valid game and try again." });
+      return;
+    }
+    if (!isDirectConversationFor(conversation, socket.data.userId)) {
+      respond({ ok: false, error: "Open a direct chat with your friend before inviting them." });
+      return;
+    }
     const peerId = conversation.split(":").slice(1).find((id) => id !== socket.data.userId);
-    if (!peerId || !usernameByUser.has(peerId)) return;
+    if (!peerId || !usernameByUser.has(peerId)) {
+      respond({ ok: false, error: "That friend is no longer available." });
+      return;
+    }
     const key = partyGameKey(conversation, type);
     const previous = partyGames[key];
-    if (previous?.status === "pending" || previous?.status === "playing") { socket.emit("party game state", previous); return; }
+    if (previous?.status === "pending" || previous?.status === "playing") {
+      socket.emit("party game state", previous);
+      respond({ ok: true });
+      return;
+    }
     const scores = previous?.scores || {};
     for (const id of [socket.data.userId, peerId]) scores[id] ||= { wins: 0, losses: 0, draws: 0 };
     const game = { conversation, type, players: [socket.data.userId, peerId], invitedBy: socket.data.userId, status: "pending", scores };
     partyGames[key] = game;
-    try { await savePartyGames(); emitPartyGame(game); }
-    catch { socket.emit("message error", "Could not save the game invite. Please try again."); }
+    try {
+      await savePartyGames();
+      emitPartyGame(game);
+      respond({ ok: true });
+    } catch {
+      socket.emit("message error", "Could not save the game invite. Please try again.");
+      respond({ ok: false, error: "Could not save the game invite. Please try again." });
+    }
   });
   socket.on("party-game accept", async (type) => {
     const game = partyGames[partyGameKey(socket.data.activeConversation, type)];
@@ -887,6 +965,7 @@ io.on("connection", (socket) => {
       reactionQueue = reactionCleanup.catch((error) => console.error("Could not remove deleted message reactions:", error));
       await reactionCleanup;
       const operation = persistenceQueue.then(async () => {
+        await supabaseStore.deleteMessage(messageId);
         await writeFile(messageFile, nextMessages.map((item) => JSON.stringify(item)).join("\n") + (nextMessages.length ? "\n" : ""), "utf8");
         await writeFile(pinsFile, JSON.stringify(nextPins), "utf8");
         await writeFile(savedFile, JSON.stringify(nextSaved), "utf8");
@@ -1033,7 +1112,7 @@ const snakeArenaTimer = setInterval(() => {
     if ((heads[0][0] === heads[1][0] && heads[0][1] === heads[1][1]) || (heads[0][0] === game.snakes[1][0][0] && heads[0][1] === game.snakes[1][0][1] && heads[1][0] === game.snakes[0][0][0] && heads[1][1] === game.snakes[0][0][1])) dead[0] = dead[1] = true;
     if (dead[0] || dead[1]) {
       finishPartyGame(game, dead[0] === dead[1] ? null : game.players[dead[0] ? 1 : 0]);
-      savePartyGames().catch(() => {});
+      savePartyGames().catch((error) => console.error("Could not save Snake Arena game:", error));
       emitPartyGame(game);
       continue;
     }
@@ -1053,13 +1132,20 @@ snakeArenaTimer.unref();
 const PORT = process.env.PORT || 3000;
 
 async function startServer() {
-  await loadMessages();
+  if (process.env.NODE_ENV === "production" && (!supabaseStore.enabled || !supabaseUrl || !supabaseAnonKey)) {
+    throw new Error("Production requires SUPABASE_URL, SUPABASE_ANON_KEY, and server-only SUPABASE_SERVICE_ROLE_KEY.");
+  }
+  await initializeStorage();
   server.listen(PORT, () => {
     console.log("Chatly running at http://localhost:" + PORT);
   });
 }
 
-startServer().catch((error) => {
-  console.error("Unable to start Chatly:", error);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  startServer().catch((error) => {
+    console.error("Unable to start Chatly:", error);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = app;
