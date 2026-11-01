@@ -29,6 +29,7 @@ const messageFile = path.join(dataDirectory, "messages.jsonl");
 const savedFile = path.join(dataDirectory, "saved-messages.json");
 const usernameFile = path.join(dataDirectory, "usernames.json");
 const pinsFile = path.join(dataDirectory, "pinned-messages.json");
+const reactionsFile = path.join(dataDirectory, "message-reactions.json");
 const uploadsFile = path.join(dataDirectory, "uploads.json");
 const groupsFile = path.join(dataDirectory, "groups.json");
 const uploadDirectory = path.join(dataDirectory, "uploads");
@@ -52,6 +53,9 @@ let usernameByUser = new Map();
 let avatarByUser = new Map();
 let usernameQueue = Promise.resolve();
 let pinnedMessages = {};
+let messageReactions = {};
+let reactionQueue = Promise.resolve();
+const deletingMessages = new Set();
 let uploads = {};
 let groups = {};
 let groupsQueue = Promise.resolve();
@@ -155,6 +159,7 @@ app.post("/api/avatar", async (req, res) => {
   try {
     await operation;
     const avatar = avatarUrlFor(avatarId);
+    const profileAvatar = avatar || user.user_metadata?.avatar_url || user.user_metadata?.picture || "";
     const persistUpdatedAvatars = persistenceQueue.then(async () => {
       const nextMessages = messages.map((message) => message.senderId === user.id ? { ...message, googleAvatar: message.googleAvatar || message.avatar || "", avatar: avatar || message.googleAvatar || message.avatar || "" } : message);
       await writeFile(messageFile, nextMessages.map((message) => JSON.stringify(message)).join("\n") + (nextMessages.length ? "\n" : ""), "utf8");
@@ -164,14 +169,13 @@ app.post("/api/avatar", async (req, res) => {
     await persistUpdatedAvatars;
     for (const activeSocket of io.sockets.sockets.values()) {
       if (activeSocket.data.userId !== user.id) continue;
-      const resolvedAvatar = avatar || user.user_metadata?.avatar_url || user.user_metadata?.picture || "";
-      activeSocket.data.avatar = resolvedAvatar;
+      activeSocket.data.avatar = profileAvatar;
       const member = users.get(activeSocket.id);
-      if (member) users.set(activeSocket.id, { ...member, avatar: resolvedAvatar });
+      if (member) users.set(activeSocket.id, { ...member, avatar: profileAvatar });
     }
-    io.emit("avatar updated", { userId: user.id, avatar });
+    io.emit("avatar updated", { userId: user.id, avatar: profileAvatar });
     sendUserList();
-    res.json({ avatarId, avatar });
+    res.json({ avatarId, avatar: profileAvatar });
   } catch { res.status(500).json({ error: "Could not save your avatar." }); }
 });
 app.post("/api/username", async (req, res) => {
@@ -285,7 +289,8 @@ app.post("/api/groups/:id/members", async (req, res) => {
 app.get("/api/saved-messages", async (req, res) => {
   const user = await getSupabaseUser(req);
   if (!user) return res.status(401).json({ error: "Sign in to view saved messages." });
-  res.json(savedMessages[user.id] || []);
+  const liveMessages = new Map(messages.map((message) => [message.id, message]));
+  res.json((savedMessages[user.id] || []).map((message) => ({ ...message, reactions: liveMessages.get(message.id)?.reactions || messageReactions[message.id] || {} })));
 });
 app.post("/api/saved-messages", async (req, res) => {
   const user = await getSupabaseUser(req);
@@ -393,6 +398,9 @@ async function loadMessages() {
   } catch (error) { if (error.code !== "ENOENT") throw error; }
   try { pinnedMessages = JSON.parse(await readFile(pinsFile, "utf8")); }
   catch (error) { if (error.code !== "ENOENT") throw error; }
+  try { messageReactions = JSON.parse(await readFile(reactionsFile, "utf8")); }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
+  messages = messages.map((message) => ({ ...message, reactions: messageReactions[message.id] || message.reactions || {} }));
   try { uploads = JSON.parse(await readFile(uploadsFile, "utf8")); }
   catch (error) { if (error.code !== "ENOENT") throw error; }
   try { groups = JSON.parse(await readFile(groupsFile, "utf8")); }
@@ -520,6 +528,7 @@ io.on("connection", (socket) => {
     if (typeof messageId !== "string" || messageId.length > 100) return;
     const message = messages.find((item) => item.id === messageId);
     if (!message || message.deleted || message.conversation !== socket.data.activeConversation || !canAccessConversation(message.conversation, socket.data.userId)) return;
+    deletingMessages.add(messageId);
     const conversation = message.conversation;
     const deleter = users.get(socket.id);
     if (!deleter) return;
@@ -534,6 +543,14 @@ io.on("connection", (socket) => {
     const attachmentId = message.attachment?.id;
     const attachmentStillUsed = attachmentId && nextMessages.some((item) => item.attachment?.id === attachmentId);
     try {
+      const reactionCleanup = reactionQueue.then(async () => {
+        const nextReactions = { ...messageReactions };
+        delete nextReactions[messageId];
+        await writeFile(reactionsFile, JSON.stringify(nextReactions), "utf8");
+        messageReactions = nextReactions;
+      });
+      reactionQueue = reactionCleanup.catch((error) => console.error("Could not remove deleted message reactions:", error));
+      await reactionCleanup;
       const operation = persistenceQueue.then(async () => {
         await writeFile(messageFile, nextMessages.map((item) => JSON.stringify(item)).join("\n") + (nextMessages.length ? "\n" : ""), "utf8");
         await writeFile(pinsFile, JSON.stringify(nextPins), "utf8");
@@ -553,6 +570,34 @@ io.on("connection", (socket) => {
       await operation;
       io.to(conversation).emit("message deleted", { message: tombstone, conversation, pinned: conversationPins(conversation) });
     } catch { socket.emit("message error", "Could not delete this message. Please try again."); }
+    finally { deletingMessages.delete(messageId); }
+  });
+
+  socket.on("react message", async ({ messageId, emoji } = {}) => {
+    const allowedEmojis = new Set(["👍", "❤️", "😂", "😮", "😢", "🎉", "🔥", "🙏"]);
+    if (typeof messageId !== "string" || !allowedEmojis.has(emoji) || deletingMessages.has(messageId)) return;
+    const initial = messages.find((item) => item.id === messageId);
+    const conversation = socket.data.activeConversation;
+    if (!initial || initial.deleted || initial.conversation !== conversation || !canAccessConversation(conversation, socket.data.userId)) return;
+    const operation = reactionQueue.then(async () => {
+      const message = messages.find((item) => item.id === messageId);
+      if (!message || message.deleted || message.conversation !== socket.data.activeConversation || !canAccessConversation(message.conversation, socket.data.userId)) return;
+      const nextMessageReactions = { ...(messageReactions[messageId] || message.reactions || {}) };
+      const users = new Set(nextMessageReactions[emoji] || []);
+      users.has(socket.data.userId) ? users.delete(socket.data.userId) : users.add(socket.data.userId);
+      if (users.size) nextMessageReactions[emoji] = [...users];
+      else delete nextMessageReactions[emoji];
+      const nextAllReactions = { ...messageReactions };
+      if (Object.keys(nextMessageReactions).length) nextAllReactions[messageId] = nextMessageReactions;
+      else delete nextAllReactions[messageId];
+      await writeFile(reactionsFile, JSON.stringify(nextAllReactions), "utf8");
+      messageReactions = nextAllReactions;
+      message.reactions = nextMessageReactions;
+      io.to(conversation).emit("message reactions", { id: messageId, conversation, reactions: nextMessageReactions });
+    });
+    reactionQueue = operation.catch((error) => console.error("Could not save message reaction:", error));
+    try { await operation; }
+    catch { socket.emit("message error", "Could not save that reaction."); }
   });
 
   socket.on("pin message", (messageId) => {

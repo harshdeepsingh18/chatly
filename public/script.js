@@ -97,13 +97,15 @@ $("message-form").addEventListener("submit", async (e) => {
 });
 
 // ----- 3. Showing messages -----
-function addMessage({ id, conversation, user, text, time, avatar, attachment, senderId, assistant, deleted }) {
-  const message = { id, conversation, user, text, time, avatar, attachment, senderId, assistant, deleted };
+function addMessage({ id, conversation, user, text, time, avatar, attachment, senderId, assistant, deleted, reactions }) {
+  const message = { id, conversation, user, text, time, avatar, attachment, senderId, assistant, deleted, reactions };
   const key = messageKey(message);
   if (showSavedOnly && !savedItems.some((item) => messageKey(item) === key)) return;
   const box = document.createElement("div");
   box.className = "msg" + (user === username ? " mine" : "");
   if (id) box.dataset.messageId = id;
+  const bubble = document.createElement("div");
+  bubble.className = "msg-bubble";
 
   const name = document.createElement("div");
   name.className = "name";
@@ -119,17 +121,34 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
   stamp.className = "time";
   stamp.textContent = new Date(time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-  box.append(name);
-  if (text) box.append(body);
+  bubble.append(name);
+  if (text) bubble.append(body);
   if (attachment) {
     const file = document.createElement("div");
     file.className = "message-attachment";
-    box.append(file);
+    bubble.append(file);
     showAttachment(attachment, file);
   }
-  box.append(stamp);
+  bubble.append(stamp);
+  const reactionEntries = Object.entries(reactions || {}).filter(([, reactors]) => Array.isArray(reactors) && reactors.length);
+  let reactionRow = null;
+  if (reactionEntries.length) {
+    reactionRow = document.createElement("div");
+    reactionRow.className = "message-reactions";
+    reactionEntries.forEach(([emoji, reactors]) => {
+      const reaction = document.createElement("button");
+      reaction.type = "button";
+      reaction.className = "reaction-chip" + (reactors.includes(currentUserId) ? " reacted" : "");
+      reaction.textContent = `${emoji} ${reactors.length}`;
+      reaction.title = reactors.length === 1 ? "1 reaction" : `${reactors.length} reactions`;
+      reaction.setAttribute("aria-pressed", String(reactors.includes(currentUserId)));
+      reaction.addEventListener("click", (event) => { event.stopPropagation(); socket.emit("react message", { messageId: id, emoji }); });
+      reactionRow.append(reaction);
+    });
+  }
   if (deleted) {
     box.classList.add("deleted-message");
+    box.append(bubble);
     messagesBox.appendChild(box);
     messagesBox.scrollTop = messagesBox.scrollHeight;
     return;
@@ -147,11 +166,60 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
   menuButton.addEventListener("click", (event) => {
     event.stopPropagation();
     const willOpen = menu.classList.contains("hidden");
-    document.querySelectorAll(".message-menu").forEach((other) => other.classList.add("hidden"));
+    closeMessageMenus();
     document.querySelectorAll(".message-menu-button").forEach((other) => other.setAttribute("aria-expanded", "false"));
     menu.classList.toggle("hidden", !willOpen);
     menuButton.setAttribute("aria-expanded", String(willOpen));
   });
+  let lastTouchTime = 0;
+  const canQuickReact = (event) => id && !event.target.closest("button, a, video, .message-actions, .message-reactions");
+  box.addEventListener("dblclick", (event) => {
+    if (!canQuickReact(event)) return;
+    event.preventDefault();
+    socket.emit("react message", { messageId: id, emoji: "❤️" });
+  });
+  box.addEventListener("pointerup", (event) => {
+    if (event.pointerType !== "touch" || !canQuickReact(event)) return;
+    const now = Date.now();
+    if (now - lastTouchTime < 360) {
+      event.preventDefault();
+      lastTouchTime = 0;
+      socket.emit("react message", { messageId: id, emoji: "❤️" });
+    } else lastTouchTime = now;
+  });
+  box.addEventListener("contextmenu", (event) => {
+    if (event.target.closest(".message-menu")) return;
+    event.preventDefault();
+    closeMessageMenus();
+    const menuWidth = 205;
+    const menuHeight = 245;
+    menu.style.position = "fixed";
+    menu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8))}px`;
+    menu.style.right = "auto";
+    menu.classList.remove("hidden");
+    menuButton.setAttribute("aria-expanded", "true");
+  });
+  const reactionPicker = document.createElement("div");
+  reactionPicker.className = "reaction-picker";
+  const reactionLabel = document.createElement("span");
+  reactionLabel.className = "reaction-picker-label";
+  reactionLabel.textContent = "React";
+  reactionPicker.append(reactionLabel);
+  ["👍", "❤️", "😂", "😮", "😢", "🎉", "🔥", "🙏"].forEach((emoji) => {
+    const reaction = document.createElement("button");
+    reaction.type = "button";
+    reaction.textContent = emoji;
+    reaction.setAttribute("aria-label", `React with ${emoji}`);
+    reaction.addEventListener("click", (event) => {
+      event.stopPropagation();
+      socket.emit("react message", { messageId: id, emoji });
+      menu.classList.add("hidden");
+      menuButton.setAttribute("aria-expanded", "false");
+    });
+    reactionPicker.append(reaction);
+  });
+  menu.append(reactionPicker);
   const pin = document.createElement("button");
   pin.type = "button";
   pin.className = "pin-message";
@@ -190,15 +258,26 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
     menu.append(remove);
   }
   actions.append(menuButton, menu);
-  box.append(actions);
+  bubble.append(actions);
+  box.append(bubble);
+  if (reactionRow) box.append(reactionRow);
   messagesBox.appendChild(box);
   messagesBox.scrollTop = messagesBox.scrollHeight;   // auto-scroll to newest
 }
 
 function messageKey(message) { return `${message.user}\n${message.time}\n${message.text}`; }
-document.addEventListener("click", () => {
-  document.querySelectorAll(".message-menu").forEach((menu) => menu.classList.add("hidden"));
+function closeMessageMenus() {
+  document.querySelectorAll(".message-menu").forEach((menu) => {
+    menu.classList.add("hidden");
+    menu.style.position = "";
+    menu.style.left = "";
+    menu.style.top = "";
+    menu.style.right = "";
+  });
   document.querySelectorAll(".message-menu-button").forEach((button) => button.setAttribute("aria-expanded", "false"));
+}
+document.addEventListener("click", () => {
+  closeMessageMenus();
 });
 function renderMessages() {
   messagesBox.replaceChildren();
@@ -359,6 +438,11 @@ socket.on("message deleted", ({ message, conversation, pinned }) => {
   renderMessages();
   renderPinnedMessages();
   updateDetailsPanel();
+});
+socket.on("message reactions", ({ id, conversation, reactions }) => {
+  allMessages = allMessages.map((message) => message.id === id ? { ...message, reactions } : message);
+  savedItems = savedItems.map((message) => message.id === id ? { ...message, reactions } : message);
+  if (conversation === currentConversation) renderMessages();
 });
 socket.on("system message", addSystemMessage);
 socket.on("message error", addSystemMessage);
@@ -604,7 +688,7 @@ function updateProfilePanel() {
   $("settings-avatar").replaceWith(avatar);
   $("settings-username-label").textContent = username || currentProfile.name;
   $("settings-email").textContent = currentProfile.email;
-  $("avatar-picker-toggle").textContent = currentProfile.avatarId ? "Change avatar" : "Choose avatar";
+  buildAvatarGrid();
   $("settings-username").value = username || "";
   const profileButton = $("profile-btn");
   profileButton.replaceChildren(createAvatar(username || currentProfile.name, currentProfile.avatar, "avatar profile-button-avatar"), document.createTextNode("Profile"));
@@ -645,16 +729,19 @@ async function saveProfileAvatar(avatarId) {
   } catch (error) { status.textContent = error.message; }
   finally { document.querySelectorAll(".avatar-choice").forEach((button) => { button.disabled = false; }); }
 }
-$("avatar-picker-toggle").addEventListener("click", () => {
-  buildAvatarGrid();
-  $("avatar-picker").classList.toggle("hidden");
-  $("avatar-status").textContent = "Choose an avatar to use across Chatly.";
-  document.querySelectorAll(".avatar-choice").forEach((button) => button.classList.toggle("selected", button.dataset.avatarId === currentProfile?.avatarId));
-});
 $("google-avatar-btn").addEventListener("click", () => saveProfileAvatar(""));
+$("avatar-show-more").addEventListener("click", () => {
+  const expanded = $("avatar-grid").classList.toggle("expanded");
+  $("avatar-show-more").textContent = expanded ? "Show less" : "Show more";
+  $("avatar-show-more").setAttribute("aria-expanded", String(expanded));
+});
 socket.on("avatar updated", (update) => {
   if (!update || typeof update !== "object") return;
   allMessages = allMessages.map((message) => message.senderId === update.userId ? { ...message, avatar: update.avatar || message.googleAvatar || message.avatar } : message);
+  savedItems = savedItems.map((message) => message.senderId === update.userId ? { ...message, avatar: update.avatar || message.googleAvatar || message.avatar } : message);
+  onlineUserCache = onlineUserCache.map((member) => member.id === update.userId ? { ...member, avatar: update.avatar || member.avatar } : member);
+  if (currentDirectUser?.id === update.userId) currentDirectUser.avatar = update.avatar || currentDirectUser.avatar;
+  myGroups = myGroups.map((group) => ({ ...group, members: (group.members || []).map((member) => member.id === update.userId ? { ...member, avatar: update.avatar || member.avatar } : member) }));
   if (update.userId === currentUserId && currentProfile) {
     currentProfile.avatar = update.avatar || currentProfile.googleAvatar;
     currentProfile.avatarId = update.avatar?.match(/avatar-(\d+)\.svg$/)?.[0]?.replace(".svg", "") || "";
