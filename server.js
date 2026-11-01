@@ -33,6 +33,7 @@ const reactionsFile = path.join(dataDirectory, "message-reactions.json");
 const uploadsFile = path.join(dataDirectory, "uploads.json");
 const groupsFile = path.join(dataDirectory, "groups.json");
 const ticTacToeFile = path.join(dataDirectory, "tic-tac-toe.json");
+const partyGamesFile = path.join(dataDirectory, "party-games.json");
 const uploadDirectory = path.join(dataDirectory, "uploads");
 const supabaseUrl = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "";
@@ -65,6 +66,8 @@ let uploads = {};
 let groups = {};
 let ticTacToeGames = {};
 let ticTacToeQueue = Promise.resolve();
+let partyGames = {};
+let partyGamesQueue = Promise.resolve();
 let groupsQueue = Promise.resolve();
 let uploadQueue = Promise.resolve();
 let pinQueue = Promise.resolve();
@@ -423,6 +426,8 @@ async function loadMessages() {
   catch (error) { if (error.code !== "ENOENT") throw error; }
   try { ticTacToeGames = JSON.parse(await readFile(ticTacToeFile, "utf8")); }
   catch (error) { if (error.code !== "ENOENT") throw error; }
+  try { partyGames = JSON.parse(await readFile(partyGamesFile, "utf8")); }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
 }
 
 function persistTicTacToeGames() {
@@ -433,6 +438,104 @@ function persistTicTacToeGames() {
 
 function emitTicTacToeGame(game) {
   game.players.forEach((userId) => io.to(`user:${userId}`).emit("tic-tac-toe state", game));
+}
+
+function savePartyGames() {
+  const write = partyGamesQueue.then(() => writeFile(partyGamesFile, JSON.stringify(partyGames), "utf8"));
+  partyGamesQueue = write.catch((error) => console.error("Could not save party games:", error));
+  return write;
+}
+function emitPartyGame(game) {
+  game.players.forEach((userId) => io.to(`user:${userId}`).emit("party game state", game));
+}
+function partyGameKey(conversation, type) { return `${conversation}|${type}`; }
+function initialChessBoard() {
+  return ["bR","bN","bB","bQ","bK","bB","bN","bR", ...Array(8).fill("bP"), ...Array(32).fill(null), ...Array(8).fill("wP"), "wR","wN","wB","wQ","wK","wB","wN","wR"];
+}
+function startPartyGame(game) {
+  game.status = "playing";
+  game.winner = null;
+  game.turn = game.players[0];
+  if (game.type === "snakes-ladders") { game.positions = [0, 0]; game.dice = null; }
+  if (game.type === "ludo") { game.tokens = [Array(4).fill(-1), Array(4).fill(-1)]; game.dice = null; game.startOffsets = [0, 26]; }
+  if (game.type === "chess") { game.board = initialChessBoard(); game.enPassant = null; }
+  if (game.type === "snake-arena") {
+    game.snakes = [[[3,7],[2,7],[1,7]], [[11,7],[12,7],[13,7]]];
+    game.directions = [[1,0],[-1,0]];
+    game.nextDirections = [[1,0],[-1,0]];
+    game.food = [7,7]; game.lengthScores = [0, 0];
+  }
+}
+function chessMoves(board, from) {
+  const piece = board[from];
+  if (!piece) return [];
+  const color = piece[0], kind = piece[1], row = Math.floor(from / 8), col = from % 8;
+  const moves = [];
+  const add = (r, c) => {
+    if (r < 0 || r > 7 || c < 0 || c > 7) return false;
+    const target = board[r * 8 + c];
+    if (target && target[0] === color) return false;
+    moves.push(r * 8 + c);
+    return !target;
+  };
+  if (kind === "P") {
+    const step = color === "w" ? -1 : 1;
+    const next = row + step;
+    if (next >= 0 && next < 8 && !board[next * 8 + col]) {
+      moves.push(next * 8 + col);
+      const home = color === "w" ? 6 : 1;
+      if (row === home && !board[(row + 2 * step) * 8 + col]) moves.push((row + 2 * step) * 8 + col);
+    }
+    for (const dc of [-1, 1]) if (next >= 0 && next < 8 && col + dc >= 0 && col + dc < 8 && board[next * 8 + col + dc]?.[0] === (color === "w" ? "b" : "w")) moves.push(next * 8 + col + dc);
+    return moves;
+  }
+  if (kind === "N") {
+    for (const [dr, dc] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]) add(row + dr, col + dc);
+    return moves;
+  }
+  const directions = [];
+  if (kind === "B" || kind === "Q") directions.push([-1,-1],[-1,1],[1,-1],[1,1]);
+  if (kind === "R" || kind === "Q") directions.push([-1,0],[1,0],[0,-1],[0,1]);
+  if (kind === "K") {
+    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) if (dr || dc) add(row + dr, col + dc);
+    return moves;
+  }
+  for (const [dr, dc] of directions) for (let distance = 1; distance < 8; distance++) if (!add(row + dr * distance, col + dc * distance)) break;
+  return moves;
+}
+function chessInCheck(board, color) {
+  const king = board.findIndex((piece) => piece === `${color}K`);
+  if (king < 0) return true;
+  const row = Math.floor(king / 8), col = king % 8, enemy = color === "w" ? "b" : "w";
+  for (let from = 0; from < 64; from++) {
+    const piece = board[from];
+    if (!piece || piece[0] !== enemy) continue;
+    if (piece[1] === "P") {
+      const direction = enemy === "w" ? -1 : 1;
+      if (Math.floor(from / 8) + direction === row && Math.abs(from % 8 - col) === 1) return true;
+    } else if (chessMoves(board, from).includes(king)) return true;
+  }
+  return false;
+}
+function legalChessMoves(board, from) {
+  const piece = board[from];
+  if (!piece) return [];
+  return chessMoves(board, from).filter((to) => {
+    if (board[to]?.[1] === "K") return false;
+    const next = board.slice(); next[to] = piece; next[from] = null;
+    if (piece[1] === "P" && (to < 8 || to >= 56)) next[to] = `${piece[0]}Q`;
+    return !chessInCheck(next, piece[0]);
+  });
+}
+function finishPartyGame(game, winnerId) {
+  game.status = "finished";
+  game.winner = winnerId;
+  game.turn = null;
+  game.players.forEach((id) => game.scores[id] ||= { wins: 0, losses: 0, draws: 0 });
+  if (winnerId) {
+    game.scores[winnerId].wins++;
+    game.scores[game.players.find((id) => id !== winnerId)].losses++;
+  } else game.players.forEach((id) => game.scores[id].draws++);
 }
 
 function persistMessage(message) {
@@ -631,6 +734,100 @@ io.on("connection", (socket) => {
     catch { socket.emit("message error", "Could not save the game score. Please try again."); }
   });
 
+  socket.on("party-game get", (type) => {
+    const conversation = socket.data.activeConversation;
+    if (!isDirectConversationFor(conversation, socket.data.userId) || !["snakes-ladders", "ludo", "chess", "snake-arena"].includes(type)) return;
+    const game = partyGames[partyGameKey(conversation, type)];
+    socket.emit("party game state", game || { conversation, type, players: [socket.data.userId], status: "idle", scores: {} });
+  });
+  socket.on("party-game invite", async (type) => {
+    const conversation = socket.data.activeConversation;
+    const allowed = new Set(["snakes-ladders", "ludo", "chess", "snake-arena"]);
+    if (!allowed.has(type) || !isDirectConversationFor(conversation, socket.data.userId)) return;
+    const peerId = conversation.split(":").slice(1).find((id) => id !== socket.data.userId);
+    if (!peerId || !usernameByUser.has(peerId)) return;
+    const key = partyGameKey(conversation, type);
+    const previous = partyGames[key];
+    if (previous?.status === "pending" || previous?.status === "playing") { socket.emit("party game state", previous); return; }
+    const scores = previous?.scores || {};
+    for (const id of [socket.data.userId, peerId]) scores[id] ||= { wins: 0, losses: 0, draws: 0 };
+    const game = { conversation, type, players: [socket.data.userId, peerId], invitedBy: socket.data.userId, status: "pending", scores };
+    partyGames[key] = game;
+    try { await savePartyGames(); emitPartyGame(game); }
+    catch { socket.emit("message error", "Could not save the game invite. Please try again."); }
+  });
+  socket.on("party-game accept", async (type) => {
+    const game = partyGames[partyGameKey(socket.data.activeConversation, type)];
+    if (!game || game.status !== "pending" || game.invitedBy === socket.data.userId || !game.players.includes(socket.data.userId)) return;
+    startPartyGame(game);
+    try { await savePartyGames(); emitPartyGame(game); }
+    catch { socket.emit("message error", "Could not start the game. Please try again."); }
+  });
+  socket.on("party-game decline", async (type) => {
+    const game = partyGames[partyGameKey(socket.data.activeConversation, type)];
+    if (!game || game.status !== "pending" || game.invitedBy === socket.data.userId || !game.players.includes(socket.data.userId)) return;
+    game.status = "declined";
+    try { await savePartyGames(); emitPartyGame(game); }
+    catch { socket.emit("message error", "Could not update the game invite."); }
+  });
+  socket.on("party-game direction", ({ dx, dy } = {}) => {
+    const game = partyGames[partyGameKey(socket.data.activeConversation, "snake-arena")];
+    if (!game || game.type !== "snake-arena" || game.status !== "playing") return;
+    const playerIndex = game.players.indexOf(socket.data.userId);
+    if (playerIndex < 0 || ![[0,-1],[0,1],[-1,0],[1,0]].some(([x,y]) => x === dx && y === dy)) return;
+    const [oldX, oldY] = game.directions[playerIndex];
+    if (dx === -oldX && dy === -oldY) return;
+    game.nextDirections[playerIndex] = [dx, dy];
+  });
+  socket.on("party-game legal", ({ from } = {}) => {
+    const game = partyGames[partyGameKey(socket.data.activeConversation, "chess")];
+    if (!game || game.type !== "chess" || game.status !== "playing" || game.turn !== socket.data.userId || !Number.isInteger(from) || from < 0 || from >= 64) return;
+    const color = game.players[0] === socket.data.userId ? "w" : "b";
+    if (game.board[from]?.[0] !== color) return;
+    socket.emit("party-game legal", { conversation: game.conversation, from, moves: legalChessMoves(game.board, from) });
+  });
+  socket.on("party-game action", async ({ type, action, from, to, token } = {}) => {
+    if (!["snakes-ladders", "ludo", "chess"].includes(type)) return;
+    const game = partyGames[partyGameKey(socket.data.activeConversation, type)];
+    if (!game || game.status !== "playing" || game.turn !== socket.data.userId || !game.players.includes(socket.data.userId)) return;
+    const playerIndex = game.players.indexOf(socket.data.userId);
+    if (game.type === "snakes-ladders" && action === "roll") {
+      const roll = crypto.randomInt(1, 7);
+      const next = game.positions[playerIndex] + roll;
+      if (next <= 100) game.positions[playerIndex] = ({4:14,9:31,20:38,28:84,40:59,51:67,63:81,71:91,17:7,54:34,62:19,64:60,87:24,93:73,95:75,99:78})[next] || next;
+      if (game.positions[playerIndex] === 100) finishPartyGame(game, socket.data.userId);
+      else game.turn = game.players[1 - playerIndex];
+    } else if (game.type === "ludo" && action === "roll" && game.dice == null) {
+      game.dice = crypto.randomInt(1, 7);
+      const roll = game.dice;
+      const tokens = game.tokens[playerIndex];
+      if (!tokens.some((position) => position < 0 ? roll === 6 : position + roll <= 57) && roll !== 6) { game.dice = null; game.turn = game.players[1 - playerIndex]; }
+    } else if (game.type === "ludo" && action === "move-token" && game.dice != null && Number.isInteger(token) && token >= 0 && token < 4) {
+      const roll = game.dice, old = game.tokens[playerIndex][token];
+      if (old < 0 ? roll !== 6 : old + roll > 57) return;
+      const next = old < 0 ? 0 : old + roll;
+      game.tokens[playerIndex][token] = next;
+      if (next < 52) {
+        const track = (next + game.startOffsets[playerIndex]) % 52;
+        const safe = new Set([0,8,13,21,26,34,39,47]);
+        if (!safe.has(track)) game.tokens[1 - playerIndex] = game.tokens[1 - playerIndex].map((position) => position >= 0 && position < 52 && (position + game.startOffsets[1 - playerIndex]) % 52 === track ? -1 : position);
+      }
+      if (game.tokens[playerIndex].every((position) => position === 57)) finishPartyGame(game, socket.data.userId);
+      else { game.dice = null; if (roll !== 6) game.turn = game.players[1 - playerIndex]; }
+    } else if (game.type === "chess" && action === "move" && Number.isInteger(from) && Number.isInteger(to) && from >= 0 && from < 64 && to >= 0 && to < 64) {
+      const piece = game.board[from], color = playerIndex === 0 ? "w" : "b";
+      if (!piece || piece[0] !== color || !legalChessMoves(game.board, from).includes(to)) return;
+      game.board[to] = piece[1] === "P" && (to < 8 || to >= 56) ? `${color}Q` : piece;
+      game.board[from] = null;
+      const nextColor = color === "w" ? "b" : "w";
+      const hasMoves = game.board.some((candidate, square) => candidate?.[0] === nextColor && legalChessMoves(game.board, square).length > 0);
+      if (!hasMoves) finishPartyGame(game, chessInCheck(game.board, nextColor) ? socket.data.userId : null);
+      else game.turn = game.players[1 - playerIndex];
+    } else return;
+    try { await savePartyGames(); emitPartyGame(game); }
+    catch { socket.emit("message error", "Could not save this game move."); }
+  });
+
   // 2. Someone sends a message -> broadcast to everyone (including the sender)
   socket.on("chat message", async (msg) => {
     const member = users.get(socket.id);
@@ -826,6 +1023,32 @@ io.on("connection", (socket) => {
     sendUserList();
   });
 });
+
+const snakeArenaTimer = setInterval(() => {
+  for (const game of Object.values(partyGames)) {
+    if (game.type !== "snake-arena" || game.status !== "playing") continue;
+    const heads = game.snakes.map((snake, index) => [snake[0][0] + game.nextDirections[index][0], snake[0][1] + game.nextDirections[index][1]]);
+    const eating = heads.map(([x, y]) => x === game.food[0] && y === game.food[1]);
+    const dead = heads.map(([x, y], index) => x < 0 || x >= 15 || y < 0 || y >= 15 || game.snakes[index].slice(0, eating[index] ? undefined : -1).some(([sx, sy]) => sx === x && sy === y) || game.snakes[1 - index].some(([sx, sy]) => sx === x && sy === y));
+    if ((heads[0][0] === heads[1][0] && heads[0][1] === heads[1][1]) || (heads[0][0] === game.snakes[1][0][0] && heads[0][1] === game.snakes[1][0][1] && heads[1][0] === game.snakes[0][0][0] && heads[1][1] === game.snakes[0][0][1])) dead[0] = dead[1] = true;
+    if (dead[0] || dead[1]) {
+      finishPartyGame(game, dead[0] === dead[1] ? null : game.players[dead[0] ? 1 : 0]);
+      savePartyGames().catch(() => {});
+      emitPartyGame(game);
+      continue;
+    }
+    game.directions = game.nextDirections.map((direction) => direction.slice());
+    game.snakes.forEach((snake, index) => { snake.unshift(heads[index]); if (!eating[index]) snake.pop(); else game.lengthScores[index]++; });
+    if (eating.some(Boolean)) {
+      const occupied = new Set(game.snakes.flat().map(([x, y]) => `${x},${y}`));
+      const available = [];
+      for (let y = 0; y < 15; y++) for (let x = 0; x < 15; x++) if (!occupied.has(`${x},${y}`)) available.push([x,y]);
+      game.food = available.length ? available[crypto.randomInt(available.length)] : [7,7];
+    }
+    emitPartyGame(game);
+  }
+}, 180);
+snakeArenaTimer.unref();
 
 const PORT = process.env.PORT || 3000;
 

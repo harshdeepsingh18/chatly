@@ -1,4 +1,4 @@
-const CACHE_NAME = "chatly-shell-v18";
+const CACHE_NAME = "chatly-shell-v19";
 const SHELL_FILES = ["/", "/style.css", "/script.js", "/manifest.webmanifest", "/logo.svg", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/socket.io/socket.io.js"];
 
 self.addEventListener("install", (event) => {

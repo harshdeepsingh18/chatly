@@ -10,6 +10,11 @@ let showSavedOnly = false;
 let currentConversation = "general";
 let currentDirectUser = null;
 let ticTacToeState = null;
+let partyGameState = null;
+const partyGameStates = new Map();
+let selectedPartyGame = "tic-tac-toe";
+let chessSelectedSquare = null;
+let chessLegalSquares = [];
 let pinnedItems = [];
 let onlineUserCache = [];
 let myGroups = [];
@@ -524,10 +529,53 @@ socket.on("tic-tac-toe state", (game) => {
   }
   renderTicTacToe();
 });
+socket.on("party game state", (game) => {
+  if (game && game.conversation !== currentConversation) {
+    if (game.status === "pending" && game.invitedBy !== currentUserId && game.players.includes(currentUserId)) incrementUnread(`${game.type} invitation`);
+    return;
+  }
+  const previous = partyGameState;
+  partyGameStates.set(game.type, game);
+  if (game.type !== selectedPartyGame) return;
+  partyGameState = game;
+  chessSelectedSquare = null;
+  chessLegalSquares = [];
+  if (game?.status === "pending" && game.invitedBy !== currentUserId && previous?.status !== "pending") {
+    addSystemMessage(`${currentDirectUser?.name || "Your friend"} invited you to play ${gameLabels[game.type] || "a game"}.`);
+  }
+  renderTicTacToe();
+});
+const gameLabels = { "tic-tac-toe": "Tic Tac Toe", "snakes-ladders": "Snakes and Ladders", ludo: "Ludo", chess: "Chess", "snake-arena": "Snake Arena" };
+socket.on("party-game legal", ({ conversation, from, moves }) => {
+  if (conversation !== currentConversation) return;
+  chessSelectedSquare = from;
+  chessLegalSquares = moves;
+  renderTicTacToe();
+});
 function renderTicTacToe() {
   const content = $("tic-tac-toe-content");
   if (!content) return;
   content.replaceChildren();
+  const picker = document.createElement("div");
+  picker.className = "party-game-picker";
+  Object.entries(gameLabels).forEach(([type, label]) => {
+    const choice = document.createElement("button");
+    choice.type = "button";
+    choice.className = "party-game-choice" + (selectedPartyGame === type ? " selected" : "");
+    choice.textContent = label;
+    choice.addEventListener("click", () => {
+      selectedPartyGame = type;
+      if (type === "tic-tac-toe") socket.emit("tic-tac-toe get state");
+      else { partyGameState = partyGameStates.get(type) || null; socket.emit("party-game get", type); }
+      renderTicTacToe();
+    });
+    picker.append(choice);
+  });
+  content.append(picker);
+  if (selectedPartyGame !== "tic-tac-toe") {
+    renderPartyGame(content, partyGameStates.get(selectedPartyGame) || partyGameState);
+    return;
+  }
   const game = ticTacToeState;
   const friend = currentDirectUser;
   const meScore = game?.scores?.[currentUserId] || { wins: 0, losses: 0, draws: 0 };
@@ -591,10 +639,144 @@ function renderTicTacToe() {
   });
   content.append(board);
 }
+function renderPartyGame(content, game) {
+  const friend = currentDirectUser;
+  const type = selectedPartyGame;
+  const scores = game?.scores || {};
+  const mine = scores[currentUserId] || { wins: 0, losses: 0, draws: 0 };
+  const theirs = scores[friend?.id] || { wins: 0, losses: 0, draws: 0 };
+  const score = document.createElement("div");
+  score.className = "tic-tac-toe-score party-score";
+  const me = document.createElement("div");
+  const meName = document.createElement("strong"); meName.textContent = username || "You";
+  const meWins = document.createElement("b"); meWins.textContent = String(mine.wins || 0);
+  const meLabel = document.createElement("small"); meLabel.textContent = "WINS";
+  me.append(meName, meWins, meLabel);
+  const vs = document.createElement("span"); vs.textContent = "VS";
+  const other = document.createElement("div");
+  const otherName = document.createElement("strong"); otherName.textContent = friend?.name || "Friend";
+  const otherWins = document.createElement("b"); otherWins.textContent = String(theirs.wins || 0);
+  const otherLabel = document.createElement("small"); otherLabel.textContent = "WINS";
+  other.append(otherName, otherWins, otherLabel);
+  const draws = document.createElement("div"); draws.className = "tic-tac-toe-draws";
+  const drawsValue = document.createElement("b"); drawsValue.textContent = String(mine.draws || 0);
+  const drawsLabel = document.createElement("small"); drawsLabel.textContent = "DRAWS";
+  draws.append(drawsValue, drawsLabel);
+  score.append(me, vs, other, draws);
+  content.append(score);
+
+  if (game?.status === "playing" && game.type !== type) {
+    const note = document.createElement("p"); note.className = "tic-tac-toe-status"; note.textContent = `A ${gameLabels[game.type]} game is already in progress.`; content.append(note);
+    const switchGame = document.createElement("button"); switchGame.className = "tic-tac-toe-primary"; switchGame.textContent = `Open ${gameLabels[game.type]}`;
+    switchGame.addEventListener("click", () => { selectedPartyGame = game.type; partyGameState = partyGameStates.get(game.type); renderTicTacToe(); }); content.append(switchGame); return;
+  }
+  const status = document.createElement("p"); status.className = "tic-tac-toe-status"; content.append(status);
+  if (!game || game.status === "idle" || game.status === "declined" || game.status === "finished") {
+    if (game?.status === "finished") status.textContent = game.winner ? (game.winner === currentUserId ? "You won! 🎉" : `${friend?.name || "Your friend"} won.`) : "It's a draw!";
+    else if (game?.status === "declined") status.textContent = "Invite declined. You can ask again later.";
+    else status.textContent = `Invite ${friend?.name || "your friend"} to play ${gameLabels[type]}.`;
+    const invite = document.createElement("button"); invite.type = "button"; invite.className = "tic-tac-toe-primary"; invite.textContent = game?.status === "finished" ? "Play again" : "Invite to play";
+    invite.addEventListener("click", () => socket.emit("party-game invite", type)); content.append(invite); return;
+  }
+  if (game.status === "pending") {
+    const invited = game.invitedBy !== currentUserId;
+    status.textContent = invited ? `${friend?.name || "Your friend"} invited you to play.` : `Waiting for ${friend?.name || "your friend"}…`;
+    if (invited) {
+      const actions = document.createElement("div"); actions.className = "tic-tac-toe-actions";
+      const accept = document.createElement("button"); accept.type = "button"; accept.className = "tic-tac-toe-primary"; accept.textContent = "Accept"; accept.addEventListener("click", () => socket.emit("party-game accept", type));
+      const decline = document.createElement("button"); decline.type = "button"; decline.className = "tic-tac-toe-secondary"; decline.textContent = "Decline"; decline.addEventListener("click", () => socket.emit("party-game decline", type));
+      actions.append(accept, decline); content.append(actions);
+    }
+    return;
+  }
+
+  if (type === "snakes-ladders") {
+    const index = game.players.indexOf(currentUserId), myTurn = game.turn === currentUserId;
+    status.textContent = myTurn ? "Your turn — roll the dice." : `${friend?.name || "Your friend"} is rolling…`;
+    const board = document.createElement("div"); board.className = "snakes-ladders-board";
+    const jumps = new Map([[4,"L"],[9,"L"],[20,"L"],[28,"L"],[40,"L"],[51,"L"],[63,"L"],[71,"L"],[17,"S"],[54,"S"],[62,"S"],[64,"S"],[87,"S"],[93,"S"],[95,"S"],[99,"S"]]);
+    for (let n = 100; n >= 1; n--) {
+      const row = Math.floor((100 - n) / 10), start = 100 - row * 10;
+      const number = row % 2 === 0 ? start - ((100 - n) % 10) : start - 9 + ((100 - n) % 10);
+      const cell = document.createElement("div"); cell.className = "snakes-ladders-cell";
+      const label = document.createElement("small"); label.textContent = String(number); cell.append(label);
+      const jump = jumps.get(number); if (jump) { const mark = document.createElement("i"); mark.className = jump === "L" ? "ladder-mark" : "snake-mark"; mark.textContent = jump; mark.title = jump === "L" ? "Ladder" : "Snake"; cell.append(mark); }
+      game.players.forEach((player, pi) => { if ((game.positions?.[pi] || 0) === number) { const pawn = document.createElement("b"); pawn.className = `board-pawn pawn-${pi}`; pawn.textContent = pi === index ? "●" : "●"; pawn.title = pi === 0 ? "You" : friend?.name || "Friend"; cell.append(pawn); } });
+      board.append(cell);
+    }
+    content.append(board);
+    const roll = document.createElement("button"); roll.type = "button"; roll.className = "tic-tac-toe-primary game-roll-button"; roll.textContent = myTurn ? "🎲 Roll dice" : `Position: ${game.positions?.[index] || "Start"}`; roll.disabled = !myTurn; roll.addEventListener("click", () => socket.emit("party-game action", { type, action: "roll" })); content.append(roll);
+  } else if (type === "ludo") {
+    const index = game.players.indexOf(currentUserId), myTurn = game.turn === currentUserId;
+    const currentRoll = game.dice;
+    status.textContent = myTurn ? (currentRoll == null ? "Your turn — roll the dice." : `You rolled a ${currentRoll}. Choose a token.`) : `${friend?.name || "Your friend"} is playing…`;
+    const die = document.createElement("div"); die.className = "ludo-die"; die.textContent = currentRoll || "🎲"; content.append(die);
+    game.players.forEach((player, pi) => {
+      const section = document.createElement("section"); section.className = `ludo-player ludo-player-${pi}`;
+      const heading = document.createElement("strong"); heading.textContent = pi === index ? `${username} · You` : friend?.name || "Friend"; section.append(heading);
+      const tokens = document.createElement("div"); tokens.className = "ludo-tokens";
+      (game.tokens?.[pi] || []).forEach((position, tokenIndex) => {
+        const pawn = document.createElement("button"); pawn.type = "button"; pawn.className = "ludo-token"; pawn.textContent = position < 0 ? "●" : position >= 57 ? "★" : String(position + 1);
+        pawn.title = position < 0 ? `Token ${tokenIndex + 1} in yard` : `Token ${tokenIndex + 1}: ${position >= 57 ? "Home" : `step ${position + 1} of 58`}`;
+        const legal = pi === index && myTurn && currentRoll != null && (position < 0 ? currentRoll === 6 : position + currentRoll <= 57);
+        pawn.disabled = !legal; pawn.classList.toggle("can-move", legal);
+        if (pi === index) pawn.addEventListener("click", () => socket.emit("party-game action", { type, action: "move-token", token: tokenIndex }));
+        const progress = document.createElement("small"); progress.textContent = position < 0 ? "Yard" : position >= 57 ? "Home" : `${position}/57`;
+        const item = document.createElement("div"); item.className = "ludo-token-item"; item.append(pawn, progress); tokens.append(item);
+      });
+      section.append(tokens); content.append(section);
+    });
+    if (myTurn && currentRoll == null) { const roll = document.createElement("button"); roll.type = "button"; roll.className = "tic-tac-toe-primary game-roll-button"; roll.textContent = "Roll dice"; roll.addEventListener("click", () => socket.emit("party-game action", { type, action: "roll" })); content.append(roll); }
+  } else if (type === "chess") {
+    const index = game.players.indexOf(currentUserId), myTurn = game.turn === currentUserId;
+    status.textContent = myTurn ? `Your turn — playing ${index === 0 ? "White" : "Black"}.` : `${friend?.name || "Your friend"} is thinking…`;
+    const board = document.createElement("div"); board.className = "chess-board";
+    const glyphs = { wK:"♔", wQ:"♕", wR:"♖", wB:"♗", wN:"♘", wP:"♙", bK:"♚", bQ:"♛", bR:"♜", bB:"♝", bN:"♞", bP:"♟" };
+    for (let view = 0; view < 64; view++) {
+      const squareIndex = index === 0 ? view : 63 - view;
+      const row = Math.floor(squareIndex / 8), col = squareIndex % 8, piece = game.board[squareIndex];
+      const square = document.createElement("button"); square.type = "button"; square.className = `chess-square ${(row + col) % 2 ? "dark" : "light"}`;
+      if (piece) { square.textContent = glyphs[piece]; square.classList.add(piece[0] === "w" ? "white-piece" : "black-piece"); }
+      if (squareIndex === chessSelectedSquare) square.classList.add("selected");
+      if (chessLegalSquares.includes(squareIndex)) square.classList.add("legal-target");
+      square.disabled = !myTurn;
+      square.addEventListener("click", () => {
+        if (chessLegalSquares.includes(squareIndex) && chessSelectedSquare !== null) { socket.emit("party-game action", { type, action: "move", from: chessSelectedSquare, to: squareIndex }); chessSelectedSquare = null; chessLegalSquares = []; }
+        else if (piece && piece[0] === (index === 0 ? "w" : "b")) socket.emit("party-game legal", { from: squareIndex });
+        else { chessSelectedSquare = null; chessLegalSquares = []; }
+        renderTicTacToe();
+      });
+      board.append(square);
+    }
+    content.append(board);
+  } else if (type === "snake-arena") {
+    const index = game.players.indexOf(currentUserId);
+    status.textContent = `${username}: ${game.lengthScores?.[index] || 0} · ${friend?.name || "Friend"}: ${game.lengthScores?.[1-index] || 0} — use arrow keys / WASD`;
+    const arena = document.createElement("div"); arena.className = "snake-arena-board";
+    for (let y = 0; y < 15; y++) for (let x = 0; x < 15; x++) {
+      const cell = document.createElement("span"); cell.className = "snake-arena-cell";
+      game.snakes?.forEach((snake, pi) => { const part = snake.findIndex(([sx,sy]) => sx === x && sy === y); if (part >= 0) cell.classList.add(part === 0 ? `snake-head-${pi}` : `snake-body-${pi}`); });
+      if (game.food?.[0] === x && game.food?.[1] === y) cell.classList.add("snake-food");
+      arena.append(cell);
+    }
+    content.append(arena);
+    const controls = document.createElement("div"); controls.className = "snake-arena-controls";
+    [["↑",0,-1],["←",-1,0],["↓",0,1],["→",1,0]].forEach(([label,dx,dy]) => { const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.setAttribute("aria-label", `Move ${label}`); button.addEventListener("click", () => socket.emit("party-game direction", { dx, dy })); controls.append(button); });
+    content.append(controls);
+  }
+}
+window.addEventListener("keydown", (event) => {
+  if ($("tic-tac-toe-modal").classList.contains("hidden") || selectedPartyGame !== "snake-arena" || partyGameState?.status !== "playing") return;
+  const direction = { ArrowUp:[0,-1], w:[0,-1], ArrowDown:[0,1], s:[0,1], ArrowLeft:[-1,0], a:[-1,0], ArrowRight:[1,0], d:[1,0] }[event.key];
+  if (!direction) return;
+  event.preventDefault();
+  socket.emit("party-game direction", { dx: direction[0], dy: direction[1] });
+});
 $("tic-tac-toe-btn").addEventListener("click", () => {
   if (!currentDirectUser) return;
   $("tic-tac-toe-modal").classList.remove("hidden");
-  socket.emit("tic-tac-toe get state");
+  if (selectedPartyGame === "tic-tac-toe") socket.emit("tic-tac-toe get state");
+  else socket.emit("party-game get", selectedPartyGame);
   renderTicTacToe();
 });
 $("tic-tac-toe-close").addEventListener("click", () => $("tic-tac-toe-modal").classList.add("hidden"));
