@@ -49,6 +49,7 @@ let savedMessages = {};
 let savedQueue = Promise.resolve();
 let usernameRegistry = new Map();
 let usernameByUser = new Map();
+let avatarByUser = new Map();
 let usernameQueue = Promise.resolve();
 let pinnedMessages = {};
 let uploads = {};
@@ -57,6 +58,37 @@ let groupsQueue = Promise.resolve();
 let uploadQueue = Promise.resolve();
 let pinQueue = Promise.resolve();
 const auraLastRequestByUser = new Map();
+const avatarBackgrounds = ["#ed5262", "#68b9a2", "#f0a642", "#a98be8", "#5ba9d3", "#e987b5", "#d4aa57", "#5e78bd", "#6ebd68", "#dd7351", "#55b9bd", "#b76eab"];
+const avatarSkins = ["#f6d1b1", "#e8b995", "#d69a70", "#bd805c", "#9b6249", "#f0c7a0", "#81523e", "#613e33"];
+const avatarHairs = ["#241d22", "#3b2a24", "#6d422d", "#ad6236", "#d0a34f", "#41454c", "#8a5b72", "#252e3c", "#4b4734", "#b8b3ac"];
+const avatarClothes = ["#6556a5", "#337f83", "#b7535d", "#e18449", "#4e719e", "#57916d", "#353b49", "#d16e9b", "#ba9146", "#609caa"];
+const avatarUrlFor = (avatarId) => avatarId ? `/api/avatars/${avatarId}.svg` : "";
+function makeAvatarSvg(index) {
+  const pick = (items, factor) => items[(index * factor + Math.floor(index / 7)) % items.length];
+  const bg = pick(avatarBackgrounds, 5);
+  const skin = pick(avatarSkins, 3);
+  const hair = pick(avatarHairs, 7);
+  const clothes = pick(avatarClothes, 9);
+  const styles = [
+    `<path d="M23 48c-4-24 8-38 28-38 22 0 33 15 27 40-5-8-8-16-9-23-10 9-26 12-44 11z" fill="${hair}"/>`,
+    `<path d="M20 48c-5-28 9-39 31-39 22 0 34 16 28 40l-2 32H24z" fill="${hair}"/><path d="M25 44c7-19 27-27 46-17-7-16-30-23-44-9-7 7-8 16-2 26z" fill="${hair}"/>`,
+    `<path d="M22 45c-8-20 4-37 28-37 23 0 38 17 28 39-6-6-8-14-8-20-12 13-29 17-48 18z" fill="${hair}"/>${Array.from({length:8},(_,i)=>`<circle cx="${30+(i%4)*13}" cy="${11+Math.floor(i/4)*9}" r="8" fill="${hair}"/>`).join("")}`,
+    `<path d="M22 50c-5-29 9-42 31-42 21 0 32 17 26 43-9-8-14-18-15-26-10 10-22 15-42 14z" fill="${hair}"/><circle cx="52" cy="10" r="10" fill="${hair}"/>`,
+    `<path d="M21 49c-6-25 7-40 30-40 22 0 36 16 29 42-10-7-16-18-18-28-10 12-23 17-41 18z" fill="${hair}"/><path d="M26 42c-10 12-8 30-1 41" fill="none" stroke="${hair}" stroke-width="8"/>`,
+    `<path d="M22 44c0-21 11-35 30-35 21 0 31 14 28 36-9-4-15-11-18-20-9 12-22 18-40 19z" fill="${hair}"/><path d="M73 29c10 9 10 24 5 34" fill="none" stroke="${hair}" stroke-width="8"/>`,
+    `<path d="M20 45c-2-24 12-37 32-37 21 0 34 14 29 38-9-10-15-14-21-24-10 12-22 20-40 23z" fill="${hair}"/><path d="M27 16c8-11 22-13 31-8" fill="none" stroke="${hair}" stroke-width="8" stroke-linecap="round"/>`,
+    `<path d="M21 48c-4-26 9-40 31-40 23 0 35 16 28 42-9-7-12-18-14-27-11 13-27 20-45 25z" fill="${hair}"/><path d="M23 37c-7 8-6 20-2 30M77 37c7 8 6 20 2 30" fill="none" stroke="${hair}" stroke-width="7"/>`
+  ];
+  const glasses = index % 5 === 0 ? `<g fill="none" stroke="#28313b" stroke-width="2.4"><circle cx="40" cy="47" r="7"/><circle cx="60" cy="47" r="7"/><path d="M47 47h6M33 46l-5-2M67 46l5-2"/></g>` : "";
+  const earrings = index % 4 === 0 ? `<circle cx="27" cy="62" r="2.4" fill="#f4cf74"/><circle cx="73" cy="62" r="2.4" fill="#f4cf74"/>` : "";
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="${bg}"/><path d="M12 100c3-22 17-32 38-32s35 10 38 32" fill="${clothes}"/><path d="M42 66h16v12H42z" fill="${skin}"/><ellipse cx="27" cy="48" rx="5" ry="8" fill="${skin}"/><ellipse cx="73" cy="48" rx="5" ry="8" fill="${skin}"/><ellipse cx="50" cy="46" rx="23" ry="28" fill="${skin}"/>${styles[index%styles.length]}<path d="M38 44h5M57 44h5" stroke="#332821" stroke-width="2.5" stroke-linecap="round"/><circle cx="41" cy="49" r="2.1" fill="#2d2726"/><circle cx="59" cy="49" r="2.1" fill="#2d2726"/><path d="M49 51l-2 7 4 1" fill="none" stroke="#b8795e" stroke-width="1.7" stroke-linecap="round"/><path d="M44 63q6 5 12 0" fill="none" stroke="#8d4e4e" stroke-width="2" stroke-linecap="round"/>${glasses}${earrings}</svg>`;
+}
+app.get("/api/avatars/:avatarId.svg", (req, res) => {
+  const match = req.params.avatarId.match(/^avatar-(\d{1,3})$/);
+  const index = match ? Number(match[1]) : 0;
+  if (!index || index > 120) return res.sendStatus(404);
+  res.type("image/svg+xml").set("Cache-Control", "public, max-age=31536000, immutable").send(makeAvatarSvg(index));
+});
 async function getSupabaseUser(req) {
   const token = req.get("authorization")?.replace(/^Bearer\s+/i, "");
   return getSupabaseUserForToken(token);
@@ -77,7 +109,8 @@ io.use(async (socket, next) => {
   socket.data.authenticatedUser = user;
   socket.data.userId = user.id;
   socket.data.username = username;
-  const avatar = user.user_metadata?.avatar_url || user.user_metadata?.picture || "";
+  socket.data.googleAvatar = user.user_metadata?.avatar_url || user.user_metadata?.picture || "";
+  const avatar = avatarUrlFor(avatarByUser.get(user.id)) || socket.data.googleAvatar;
   try {
     const parsedAvatar = new URL(avatar);
     socket.data.avatar = parsedAvatar.protocol === "https:" ? parsedAvatar.href : "";
@@ -88,6 +121,58 @@ app.get("/api/username", async (req, res) => {
   const user = await getSupabaseUser(req);
   if (!user) return res.status(401).json({ error: "Sign in with Google first." });
   res.json({ username: usernameByUser.get(user.id) || "" });
+});
+app.get("/api/avatar", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in first." });
+  const avatarId = avatarByUser.get(user.id) || "";
+  res.json({ avatarId, avatar: avatarUrlFor(avatarId) });
+});
+app.post("/api/avatar", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in first." });
+  const avatarId = String(req.body?.avatarId || "");
+  if (avatarId && (!/^avatar-\d{1,3}$/.test(avatarId) || Number(avatarId.slice(7)) < 1 || Number(avatarId.slice(7)) > 120)) {
+    return res.status(400).json({ error: "Choose one of the available avatars." });
+  }
+  const operation = usernameQueue.then(async () => {
+    const currentName = usernameByUser.get(user.id);
+    if (!currentName) throw new Error("Choose a username before selecting an avatar.");
+    const key = currentName.toLocaleLowerCase();
+    const current = usernameRegistry.get(key);
+    if (!current || current.id !== user.id) throw new Error("Could not find your Chatly profile.");
+    const next = new Map(usernameRegistry);
+    const updated = { ...current };
+    if (avatarId) updated.avatarId = avatarId;
+    else delete updated.avatarId;
+    next.set(key, updated);
+    await writeFile(usernameFile, JSON.stringify([...next.values()], null, 2), "utf8");
+    usernameRegistry = next;
+    if (avatarId) avatarByUser.set(user.id, avatarId);
+    else avatarByUser.delete(user.id);
+  });
+  usernameQueue = operation.catch(() => {});
+  try {
+    await operation;
+    const avatar = avatarUrlFor(avatarId);
+    const persistUpdatedAvatars = persistenceQueue.then(async () => {
+      const nextMessages = messages.map((message) => message.senderId === user.id ? { ...message, googleAvatar: message.googleAvatar || message.avatar || "", avatar: avatar || message.googleAvatar || message.avatar || "" } : message);
+      await writeFile(messageFile, nextMessages.map((message) => JSON.stringify(message)).join("\n") + (nextMessages.length ? "\n" : ""), "utf8");
+      messages = nextMessages;
+    });
+    persistenceQueue = persistUpdatedAvatars.catch((error) => console.error("Could not update profile avatars in message history:", error));
+    await persistUpdatedAvatars;
+    for (const activeSocket of io.sockets.sockets.values()) {
+      if (activeSocket.data.userId !== user.id) continue;
+      const resolvedAvatar = avatar || user.user_metadata?.avatar_url || user.user_metadata?.picture || "";
+      activeSocket.data.avatar = resolvedAvatar;
+      const member = users.get(activeSocket.id);
+      if (member) users.set(activeSocket.id, { ...member, avatar: resolvedAvatar });
+    }
+    io.emit("avatar updated", { userId: user.id, avatar });
+    sendUserList();
+    res.json({ avatarId, avatar });
+  } catch { res.status(500).json({ error: "Could not save your avatar." }); }
 });
 app.post("/api/username", async (req, res) => {
   const user = await getSupabaseUser(req);
@@ -107,7 +192,8 @@ app.post("/api/username", async (req, res) => {
     const next = new Map(usernameRegistry);
     const previous = usernameByUser.get(user.id);
     if (previous && previous.toLocaleLowerCase() !== key) next.delete(previous.toLocaleLowerCase());
-    next.set(key, { id: user.id, name });
+    const previousEntry = previous ? usernameRegistry.get(previous.toLocaleLowerCase()) : null;
+    next.set(key, { ...previousEntry, ...currentOwner, id: user.id, name });
     await writeFile(usernameFile, JSON.stringify([...next.values()], null, 2), "utf8");
     usernameRegistry = next;
     usernameByUser = new Map([...next.values()].map((entry) => [entry.id, entry.name]));
@@ -135,7 +221,7 @@ app.get("/api/groups", async (req, res) => {
   }
   res.json(Object.values(groups).filter((group) => group.memberIds.includes(user.id)).map((group) => ({
     ...group,
-    members: group.memberIds.map((id) => ({ id, name: usernameByUser.get(id) || "Chatly member", avatar: onlineById.get(id)?.avatar || "", online: onlineById.has(id) }))
+    members: group.memberIds.map((id) => ({ id, name: usernameByUser.get(id) || "Chatly member", avatar: onlineById.get(id)?.avatar || avatarUrlFor(avatarByUser.get(id)), online: onlineById.has(id) }))
   })));
 });
 app.get("/api/group-members", async (req, res) => {
@@ -147,7 +233,7 @@ app.get("/api/group-members", async (req, res) => {
     if (socket?.data.userId) onlineById.set(socket.data.userId, member);
   }
   res.json([...usernameByUser.entries()].filter(([id]) => id !== user.id).map(([id, name]) => ({
-    id, name, avatar: onlineById.get(id)?.avatar || "", online: onlineById.has(id)
+    id, name, avatar: onlineById.get(id)?.avatar || avatarUrlFor(avatarByUser.get(id)), online: onlineById.has(id)
   })).sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name)));
 });
 app.post("/api/groups", async (req, res) => {
@@ -303,6 +389,7 @@ async function loadMessages() {
     const entries = JSON.parse(await readFile(usernameFile, "utf8"));
     usernameRegistry = new Map(entries.map((entry) => [entry.name.toLocaleLowerCase(), entry]));
     usernameByUser = new Map(entries.map((entry) => [entry.id, entry.name]));
+    avatarByUser = new Map(entries.filter((entry) => entry.avatarId).map((entry) => [entry.id, entry.avatarId]));
   } catch (error) { if (error.code !== "ENOENT") throw error; }
   try { pinnedMessages = JSON.parse(await readFile(pinsFile, "utf8")); }
   catch (error) { if (error.code !== "ENOENT") throw error; }
@@ -370,7 +457,7 @@ io.on("connection", (socket) => {
     const name = socket.data.username;
     if (users.has(socket.id)) return;
 
-    const member = { name, avatar: socket.data.avatar };
+    const member = { name, avatar: socket.data.avatar, googleAvatar: socket.data.googleAvatar };
     users.set(socket.id, member);
     chatRooms.forEach((room) => socket.join(room));
     io.emit("system message", name + " joined the chat");
@@ -409,7 +496,7 @@ io.on("connection", (socket) => {
 
     const message = {
       id: crypto.randomUUID(), conversation, user: member.name, senderId: socket.data.userId,
-      text, time: Date.now(), avatar: member.avatar, attachment: attachment ? uploads[attachment.id] : undefined
+      text, time: Date.now(), avatar: member.avatar, googleAvatar: member.googleAvatar, attachment: attachment ? uploads[attachment.id] : undefined
     };
     try {
       await persistMessage(message);

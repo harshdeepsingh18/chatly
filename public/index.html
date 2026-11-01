@@ -80,7 +80,7 @@
           <button id="video-call-btn" type="button" aria-label="Start video call" title="Video call">▣</button>
         </div>
         <div class="conversation-tools">
-          <button id="add-group-members-header" class="hidden" type="button" aria-label="Add members to this group" title="Add members">＋</button>
+          <button id="add-group-members-header" class="hidden" type="button" aria-label="Add members to this group" title="Add members">＋ Add members</button>
           <input id="search-input" type="search" placeholder="Search" aria-label="Search messages">
           <button id="conversation-search-btn" type="button" aria-label="Search conversation" title="Search">⌕</button>
           <button id="conversation-details-btn" type="button" aria-label="Show conversation details" title="Details">⚙</button>
@@ -160,6 +160,14 @@
         <span id="settings-avatar" class="avatar profile-avatar">?</span>
         <div><strong id="settings-username-label"></strong><span id="settings-email"></span></div>
       </div>
+      <section class="avatar-settings">
+        <div class="avatar-settings-heading"><h3>Profile avatar</h3><button id="avatar-picker-toggle" type="button">Choose avatar</button></div>
+        <div id="avatar-picker" class="avatar-picker hidden">
+          <div id="avatar-grid" class="avatar-grid"></div>
+          <button id="google-avatar-btn" type="button">Use Google photo</button>
+        </div>
+        <p id="avatar-status" role="status"></p>
+      </section>
       <form id="settings-username-form">
         <label for="settings-username">Chat username</label>
         <input id="settings-username" type="text" maxlength="20" autocomplete="nickname" required>

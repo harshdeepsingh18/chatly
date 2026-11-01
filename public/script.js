@@ -3,6 +3,7 @@ const socket = io({ autoConnect: false });
 let username = "";
 let currentUserId = "";
 let currentProfile = null;
+let avatarGridBuilt = false;
 let authToken = "";
 let savedItems = [];
 let showSavedOnly = false;
@@ -295,7 +296,7 @@ function createAvatar(name, url, className = "avatar") {
   avatar.className = className;
   avatar.setAttribute("aria-hidden", "true");
   const initials = String(name || "?").trim().slice(0, 1).toUpperCase() || "?";
-  if (url && /^https:\/\//i.test(url)) {
+  if (url && (/^https:\/\//i.test(url) || /^\/api\/avatars\/avatar-\d{1,3}\.svg$/.test(url))) {
     const image = document.createElement("img");
     image.src = url;
     image.alt = "";
@@ -390,6 +391,8 @@ async function loadGroups() {
     const nav = $("group-list");
     nav.replaceChildren();
     myGroups.forEach((group) => {
+      const item = document.createElement("div");
+      item.className = "group-list-item";
       const button = document.createElement("button");
       button.type = "button";
       button.className = "room-button group-button" + (currentConversation === `group:${group.id}` ? " active" : "");
@@ -397,7 +400,18 @@ async function loadGroups() {
       button.textContent = `▧ ${group.name}`;
       button.title = `${group.memberIds.length} members`;
       button.addEventListener("click", () => openGroup(group));
-      nav.append(button);
+      item.append(button);
+      if (group.creatorId === currentUserId) {
+        const addButton = document.createElement("button");
+        addButton.type = "button";
+        addButton.className = "group-list-add";
+        addButton.textContent = "+";
+        addButton.title = `Add members to ${group.name}`;
+        addButton.setAttribute("aria-label", `Add members to ${group.name}`);
+        addButton.addEventListener("click", () => showGroupMembersDialog(group));
+        item.append(addButton);
+      }
+      nav.append(item);
     });
   } catch (error) { addSystemMessage(error.message); }
 }
@@ -455,10 +469,12 @@ async function showGroupMembersDialog(group = null) {
   } catch (error) { $("group-status").textContent = error.message; }
 }
 $("create-group-btn").addEventListener("click", () => showGroupMembersDialog());
-$("add-group-members-btn").addEventListener("click", () => {
+function openAddGroupMembersDialog() {
   const group = myGroups.find((item) => `group:${item.id}` === currentConversation);
   if (group?.creatorId === currentUserId) showGroupMembersDialog(group);
-});
+}
+$("add-group-members-btn").addEventListener("click", openAddGroupMembersDialog);
+$("add-group-members-header").addEventListener("click", openAddGroupMembersDialog);
 $("group-close").addEventListener("click", () => $("group-modal").classList.add("hidden"));
 $("group-modal").addEventListener("click", (event) => { if (event.target === $("group-modal")) $("group-modal").classList.add("hidden"); });
 $("create-group-form").addEventListener("submit", async (event) => {
@@ -509,6 +525,7 @@ async function resumeSupabaseSession() {
   const user = data.session.user;
   currentUserId = user.id;
   currentProfile = { id: user.id, email: user.email || "", name: String(user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0] || "Chatly user").slice(0, 20), avatar: user.user_metadata?.avatar_url || user.user_metadata?.picture || "" };
+  currentProfile.googleAvatar = currentProfile.avatar;
   username = currentProfile.name;
   $("auth-status").textContent = `Signed in as ${user.email}`;
   let hasSavedUsername = false;
@@ -516,6 +533,14 @@ async function resumeSupabaseSession() {
     const response = await fetch("/api/username", { headers: { Authorization: `Bearer ${authToken}` } });
     const result = await response.json();
     if (response.ok && result.username) { username = result.username; hasSavedUsername = true; }
+  } catch {}
+  try {
+    const avatarResponse = await fetch("/api/avatar", { headers: { Authorization: `Bearer ${authToken}` } });
+    const avatarResult = await avatarResponse.json();
+    if (avatarResponse.ok) {
+      currentProfile.avatarId = avatarResult.avatarId || "";
+      currentProfile.avatar = avatarResult.avatar || currentProfile.googleAvatar;
+    }
   } catch {}
   updateProfilePanel();
   $("username").value = username;
@@ -579,10 +604,65 @@ function updateProfilePanel() {
   $("settings-avatar").replaceWith(avatar);
   $("settings-username-label").textContent = username || currentProfile.name;
   $("settings-email").textContent = currentProfile.email;
+  $("avatar-picker-toggle").textContent = currentProfile.avatarId ? "Change avatar" : "Choose avatar";
   $("settings-username").value = username || "";
   const profileButton = $("profile-btn");
   profileButton.replaceChildren(createAvatar(username || currentProfile.name, currentProfile.avatar, "avatar profile-button-avatar"), document.createTextNode("Profile"));
 }
+function buildAvatarGrid() {
+  if (avatarGridBuilt) return;
+  avatarGridBuilt = true;
+  const grid = $("avatar-grid");
+  for (let index = 1; index <= 120; index += 1) {
+    const avatarId = `avatar-${index}`;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "avatar-choice";
+    button.dataset.avatarId = avatarId;
+    button.setAttribute("aria-label", `Choose illustrated avatar ${index}`);
+    const image = document.createElement("img");
+    image.src = `/api/avatars/${avatarId}.svg`;
+    image.alt = "";
+    image.loading = "lazy";
+    button.append(image);
+    button.addEventListener("click", () => saveProfileAvatar(avatarId));
+    grid.append(button);
+  }
+}
+async function saveProfileAvatar(avatarId) {
+  const status = $("avatar-status");
+  status.textContent = "Saving avatar…";
+  document.querySelectorAll(".avatar-choice").forEach((button) => { button.disabled = true; });
+  try {
+    const response = await fetch("/api/avatar", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ avatarId }) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Could not save avatar.");
+    currentProfile.avatarId = result.avatarId;
+    currentProfile.avatar = result.avatar || currentProfile.googleAvatar;
+    updateProfilePanel();
+    document.querySelectorAll(".avatar-choice").forEach((button) => button.classList.toggle("selected", button.dataset.avatarId === avatarId));
+    status.textContent = avatarId ? "Avatar saved to your profile." : "Using your Google photo.";
+  } catch (error) { status.textContent = error.message; }
+  finally { document.querySelectorAll(".avatar-choice").forEach((button) => { button.disabled = false; }); }
+}
+$("avatar-picker-toggle").addEventListener("click", () => {
+  buildAvatarGrid();
+  $("avatar-picker").classList.toggle("hidden");
+  $("avatar-status").textContent = "Choose an avatar to use across Chatly.";
+  document.querySelectorAll(".avatar-choice").forEach((button) => button.classList.toggle("selected", button.dataset.avatarId === currentProfile?.avatarId));
+});
+$("google-avatar-btn").addEventListener("click", () => saveProfileAvatar(""));
+socket.on("avatar updated", (update) => {
+  if (!update || typeof update !== "object") return;
+  allMessages = allMessages.map((message) => message.senderId === update.userId ? { ...message, avatar: update.avatar || message.googleAvatar || message.avatar } : message);
+  if (update.userId === currentUserId && currentProfile) {
+    currentProfile.avatar = update.avatar || currentProfile.googleAvatar;
+    currentProfile.avatarId = update.avatar?.match(/avatar-(\d+)\.svg$/)?.[0]?.replace(".svg", "") || "";
+    updateProfilePanel();
+  }
+  renderMessages();
+  updateDetailsPanel();
+});
 $("profile-btn").addEventListener("click", () => { updateProfilePanel(); $("settings-status").textContent = ""; $("settings-modal").classList.remove("hidden"); });
 $("settings-close").addEventListener("click", () => $("settings-modal").classList.add("hidden"));
 $("settings-modal").addEventListener("click", (event) => { if (event.target === $("settings-modal")) $("settings-modal").classList.add("hidden"); });
