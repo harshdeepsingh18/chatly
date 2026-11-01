@@ -10,6 +10,7 @@ let currentConversation = "general";
 let currentDirectUser = null;
 let pinnedItems = [];
 let onlineUserCache = [];
+let myGroups = [];
 let unreadCount = 0;
 const titleBase = "Chatly";
 const attachmentUrls = new Map();
@@ -325,13 +326,15 @@ socket.on("direct opened", ({ user }) => {
   $("call-controls").classList.remove("hidden");
   $("search-input").value = "";
   document.querySelectorAll(".room-button").forEach((button) => button.classList.remove("active"));
+  document.querySelectorAll(".group-button").forEach((button) => button.classList.remove("active"));
   updateDetailsPanel();
 });
 socket.on("direct notification", ({ conversation, fromId, fromName }) => {
   if (fromId === currentUserId) return;
-  if (fromId === currentDirectUser?.id && conversation === currentConversation) return;
+  if (conversation === currentConversation) return;
   incrementUnread(`${fromName} sent you a message`);
 });
+socket.on("groups updated", loadGroups);
 socket.on("chat message", (message) => {
   if (message.conversation !== currentConversation) {
     if (message.conversation?.startsWith("dm:") || message.senderId === currentUserId) return;
@@ -368,11 +371,97 @@ document.querySelectorAll(".room-button").forEach((button) => {
     $("saved-btn").textContent = "☆ Saved";
     $("conversation-name").textContent = `# ${currentConversation}`;
     document.querySelectorAll(".room-button").forEach((roomButton) => roomButton.classList.toggle("active", roomButton === button));
+    document.querySelectorAll(".group-button").forEach((groupButton) => groupButton.classList.remove("active"));
     $("search-input").value = "";
     socket.emit("join room", currentConversation);
     clearUnread();
     sidebar.classList.remove("open");
   });
+});
+
+async function loadGroups() {
+  if (!authToken) return;
+  try {
+    const response = await fetch("/api/groups", { headers: { Authorization: `Bearer ${authToken}` } });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Could not load groups.");
+    myGroups = result;
+    const nav = $("group-list");
+    nav.replaceChildren();
+    myGroups.forEach((group) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "room-button group-button" + (currentConversation === `group:${group.id}` ? " active" : "");
+      button.dataset.groupId = group.id;
+      button.textContent = `▧ ${group.name}`;
+      button.title = `${group.memberIds.length} members`;
+      button.addEventListener("click", () => openGroup(group));
+      nav.append(button);
+    });
+  } catch (error) { addSystemMessage(error.message); }
+}
+function openGroup(group) {
+  currentDirectUser = null;
+  $("call-controls").classList.add("hidden");
+  currentConversation = `group:${group.id}`;
+  showSavedOnly = false;
+  $("saved-btn").textContent = "☆ Saved";
+  $("saved-btn").setAttribute("aria-pressed", "false");
+  $("conversation-name").textContent = `▧ ${group.name}`;
+  document.querySelectorAll(".room-button").forEach((button) => button.classList.remove("active"));
+  document.querySelectorAll(".group-button").forEach((button) => button.classList.toggle("active", button.dataset.groupId === group.id));
+  $("search-input").value = "";
+  socket.emit("join group", group.id);
+  updateDetailsPanel();
+  clearUnread();
+  sidebar.classList.remove("open");
+}
+
+$("create-group-btn").addEventListener("click", async () => {
+  $("group-modal").classList.remove("hidden");
+  $("group-status").textContent = "Loading members…";
+  $("group-member-options").replaceChildren();
+  try {
+    const response = await fetch("/api/group-members", { headers: { Authorization: `Bearer ${authToken}` } });
+    const members = await response.json();
+    if (!response.ok) throw new Error(members.error || "Could not load members.");
+    const options = $("group-member-options");
+    if (!members.length) options.textContent = "No other Chatly members yet.";
+    members.forEach((member) => {
+      const label = document.createElement("label");
+      label.className = "group-member-option";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = member.id;
+      const avatar = createAvatar(member.name, member.avatar);
+      const name = document.createElement("span");
+      name.textContent = member.name;
+      const status = document.createElement("small");
+      status.textContent = member.online ? "Online" : "";
+      label.append(checkbox, avatar, name, status);
+      options.append(label);
+    });
+    $("group-status").textContent = "Select one or more people to add.";
+  } catch (error) { $("group-status").textContent = error.message; }
+});
+$("group-close").addEventListener("click", () => $("group-modal").classList.add("hidden"));
+$("group-modal").addEventListener("click", (event) => { if (event.target === $("group-modal")) $("group-modal").classList.add("hidden"); });
+$("create-group-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const submit = $("group-submit");
+  submit.disabled = true;
+  $("group-status").textContent = "Creating group…";
+  const memberIds = [...$("group-member-options").querySelectorAll("input:checked")].map((checkbox) => checkbox.value);
+  try {
+    const response = await fetch("/api/groups", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ name: $("group-name").value.trim(), memberIds }) });
+    const group = await response.json();
+    if (!response.ok) throw new Error(group.error || "Could not create group.");
+    $("group-modal").classList.add("hidden");
+    $("group-name").value = "";
+    await loadGroups();
+    openGroup(group);
+  } catch (error) { $("group-status").textContent = error.message; }
+  finally { submit.disabled = false; }
 });
 
 $("search-input").addEventListener("input", renderMessages);
@@ -415,6 +504,7 @@ async function resumeSupabaseSession() {
   else usernameScreen.classList.remove("hidden");
 }
 async function enterChat() {
+  await loadGroups();
   try { await loadSavedMessages(); } catch (error) { $("username-status").textContent = error.message; }
   socket.auth = { token: authToken };
   if (!socket.connected) socket.connect();
@@ -557,14 +647,15 @@ socket.on("user list", (users) => {
 
 function updateDetailsPanel() {
   const person = currentDirectUser;
-  const name = person?.name || `# ${currentConversation}`;
+  const group = currentConversation.startsWith("group:") ? myGroups.find((item) => `group:${item.id}` === currentConversation) : null;
+  const name = person?.name || group?.name || `# ${currentConversation}`;
   const avatar = createAvatar(name, person?.avatar || "", "avatar details-avatar");
   avatar.id = "details-avatar";
   $("details-avatar").replaceWith(avatar);
   $("details-name").textContent = name;
   $("details-status").textContent = person
     ? (onlineUserCache.some((user) => user.id === person.id) ? "Online" : "Chat member")
-    : "Chat room";
+    : group ? `${group.memberIds.length} members` : "Chat room";
 
   const attachments = allMessages.filter((message) => message.attachment).map((message) => message.attachment);
   const unique = [...new Map(attachments.map((file) => [file.id, file])).values()];
@@ -591,7 +682,7 @@ function updateDetailsPanel() {
   });
 }
 
-$ ("details-toggle").addEventListener("click", () => {
+$("details-toggle").addEventListener("click", () => {
   if (window.innerWidth > 1000) $("chat").classList.toggle("details-closed");
   else $("details-panel").classList.add("open");
 });
@@ -617,10 +708,10 @@ $("emoji-btn").addEventListener("click", () => emojiPanel.classList.toggle("hidd
 function setTheme(theme) {
   document.documentElement.dataset.theme = theme;
   $("theme-btn").textContent = theme === "dark" ? "☀️" : "🌙";
-  try { localStorage.setItem("theme", theme); } catch (e) {}
+  try { localStorage.setItem("chatly-theme-v2", theme); } catch (e) {}
 }
-let saved = "light";
-try { saved = localStorage.getItem("theme") || saved; } catch (e) {}
+let saved = "dark";
+try { saved = localStorage.getItem("chatly-theme-v2") || saved; } catch (e) {}
 setTheme(saved);
 $("theme-btn").addEventListener("click", () => {
   setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");

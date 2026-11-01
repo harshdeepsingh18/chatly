@@ -75,7 +75,7 @@ The **Continue with Google** button uses Supabase OAuth. First-time Google sign-
 
 ## Rooms, direct messages, and files
 
-Chat history is separated into `#general`, `#doubts`, and `#notes`. Click an online username to open a private one-to-one conversation. Upload images, PDFs, text files, and DOCX notes up to 12 MB. Uploads, message history, saved messages, and pins are stored in `data/`; keep this folder persistent and backed up.
+Chat history is separated into `#general`, `#doubts`, and `#notes`. Create member groups from the sidebar and choose registered Chatly members to invite; group membership and messages persist in `data/groups.json` and `data/messages.jsonl`. Click an online username to open a private one-to-one conversation. Upload images, PDFs, text files, and DOCX notes up to 12 MB; shared photos and files appear in the conversation details panel. Uploads, message history, saved messages, groups, and pins are stored in `data/`; keep this folder persistent and backed up.
 
 Use the search field to filter the open conversation. Pin messages to keep them at the top of that conversation. Delete messages with the three-dot menu; the chat shows who deleted them, and deleting a message with an attachment also deletes its uploaded file. Message sounds play for new messages, and unread messages update the browser tab title.
 

@@ -71,6 +71,9 @@ input { font: inherit; color: inherit; }
   padding: 1.15rem 0.9rem; overflow-y: auto;
 }
 #sidebar h2 { font-size: 0.82rem; letter-spacing: 0.03em; margin-bottom: 0.65rem; }
+.group-heading { display: flex; align-items: center; justify-content: space-between; margin-top: 1.3rem; }
+.group-heading button { width: 27px; height: 27px; border: 1px solid var(--line); border-radius: 8px; background: #252a2c; color: var(--accent); font-size: 1.2rem; line-height: 1; }
+#group-list { margin-bottom: 1.4rem; }
 #online-count { color: var(--muted); font-weight: 400; margin-left: 0.3rem; }
 #user-list { list-style: none; padding: 0; display: grid; gap: 0.6rem; }
 #user-list li { display: flex; align-items: center; gap: 0.6rem; min-width: 0; }
@@ -231,6 +234,23 @@ header #details-toggle { width: 36px; height: 36px; border: 1px solid var(--line
 .details-file a { color: var(--text); font-size: 0.76rem; text-decoration: none; overflow-wrap: anywhere; }
 .details-file a:hover { color: var(--accent); }
 .details-empty { grid-column: 1 / -1; color: var(--muted); font-size: 0.76rem; }
+.group-card { max-height: min(90dvh, 720px); overflow: auto; }
+.group-card > label, .group-card > h3 { font-size: 0.88rem; font-weight: 700; }
+.group-card > input { width: 100%; padding: 0.7rem 0.8rem; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); }
+.group-member-options { max-height: 280px; overflow: auto; display: grid; gap: 0.35rem; padding: 0.25rem; }
+.group-member-option { display: flex; align-items: center; gap: 0.6rem; padding: 0.45rem; border: 1px solid transparent; border-radius: 9px; background: #222628; font-weight: 400 !important; cursor: pointer; }
+.group-member-option:has(input:checked) { border-color: var(--accent); background: #243237; }
+.group-member-option input { accent-color: var(--accent); }
+.group-member-option .avatar { width: 30px; height: 30px; }
+.group-member-option span { flex: 1; }
+.group-member-option small { color: var(--online); }
+#group-status { min-height: 1.15rem; color: var(--muted); font-size: 0.82rem; }
+#group-submit { width: 100%; padding: 0.75rem; border-radius: 9px; background: #47b5cc; color: #06252b; font-weight: 700; }
+#group-submit:disabled { opacity: 0.6; }
+@media (min-width: 1001px) {
+  #chat.details-closed { grid-template-columns: 260px minmax(0, 1fr); }
+  #chat.details-closed #details-panel { display: none; }
+}
 #messages { background: #101314; }
 .msg { border-color: transparent; }
 .msg .name { color: var(--accent); }
@@ -271,4 +291,5 @@ header #details-toggle { width: 36px; height: 36px; border: 1px solid var(--line
   header .title small { display: none; }
   header #saved-btn { font-size: 0; }
   header #saved-btn::first-letter { font-size: 1rem; }
+  header #profile-btn { font-size: 0; }
 }

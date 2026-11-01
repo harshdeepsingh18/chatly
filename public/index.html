@@ -51,6 +51,8 @@
         <button type="button" class="room-button" data-room="doubts"># doubts</button>
         <button type="button" class="room-button" data-room="notes"># notes</button>
       </nav>
+      <div class="group-heading"><h2>My groups</h2><button id="create-group-btn" type="button" aria-label="Create a group" title="Create a group">+</button></div>
+      <nav id="group-list" class="room-list" aria-label="Your group chats"></nav>
       <h2>Online <span id="online-count">0</span></h2>
       <ul id="user-list"></ul>
     </aside>
@@ -154,6 +156,18 @@
       </form>
       <button id="signout-btn" type="button">Sign out</button>
     </div>
+  </section>
+
+  <section id="group-modal" class="call-modal hidden" role="dialog" aria-modal="true" aria-labelledby="group-modal-title">
+    <form id="create-group-form" class="settings-card group-card">
+      <div class="settings-heading"><h2 id="group-modal-title">Create a group</h2><button id="group-close" type="button" aria-label="Close group form">×</button></div>
+      <label for="group-name">Group name</label>
+      <input id="group-name" type="text" maxlength="40" placeholder="e.g. Biology study group" required>
+      <h3>Choose members</h3>
+      <div id="group-member-options" class="group-member-options"></div>
+      <p id="group-status" role="status"></p>
+      <button id="group-submit" type="submit">Create group</button>
+    </form>
   </section>
 
   <script src="/config.js"></script>

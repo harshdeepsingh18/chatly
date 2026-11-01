@@ -30,6 +30,7 @@ const savedFile = path.join(dataDirectory, "saved-messages.json");
 const usernameFile = path.join(dataDirectory, "usernames.json");
 const pinsFile = path.join(dataDirectory, "pinned-messages.json");
 const uploadsFile = path.join(dataDirectory, "uploads.json");
+const groupsFile = path.join(dataDirectory, "groups.json");
 const uploadDirectory = path.join(dataDirectory, "uploads");
 const supabaseUrl = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "";
@@ -51,6 +52,8 @@ let usernameByUser = new Map();
 let usernameQueue = Promise.resolve();
 let pinnedMessages = {};
 let uploads = {};
+let groups = {};
+let groupsQueue = Promise.resolve();
 let uploadQueue = Promise.resolve();
 let pinQueue = Promise.resolve();
 const auraLastRequestByUser = new Map();
@@ -122,6 +125,43 @@ app.post("/api/username", async (req, res) => {
   try { res.json({ username: await operation }); }
   catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : "Could not save username." }); }
 });
+app.get("/api/groups", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in first." });
+  res.json(Object.values(groups).filter((group) => group.memberIds.includes(user.id)));
+});
+app.get("/api/group-members", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in first." });
+  const onlineById = new Map();
+  for (const [socketId, member] of users) {
+    const socket = io.sockets.sockets.get(socketId);
+    if (socket?.data.userId) onlineById.set(socket.data.userId, member);
+  }
+  res.json([...usernameByUser.entries()].filter(([id]) => id !== user.id).map(([id, name]) => ({
+    id, name, avatar: onlineById.get(id)?.avatar || "", online: onlineById.has(id)
+  })).sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name)));
+});
+app.post("/api/groups", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in first." });
+  const name = String(req.body?.name || "").trim().replace(/\s+/g, " ");
+  if (!name || name.length > 40 || /[\r\n\u0000-\u001f]/.test(name)) return res.status(400).json({ error: "Group names must be 1 to 40 characters." });
+  const invitees = Array.isArray(req.body?.memberIds) ? [...new Set(req.body.memberIds.filter((id) => typeof id === "string"))] : [];
+  if (!invitees.length || invitees.length > 24 || invitees.some((id) => !usernameByUser.has(id))) return res.status(400).json({ error: "Choose between 1 and 24 registered members." });
+  const operation = groupsQueue.then(async () => {
+    const id = crypto.randomUUID();
+    const group = { id, name, creatorId: user.id, memberIds: [...new Set([user.id, ...invitees])], createdAt: Date.now() };
+    const next = { ...groups, [id]: group };
+    await writeFile(groupsFile, JSON.stringify(next, null, 2), "utf8");
+    groups = next;
+    for (const memberId of group.memberIds) io.to(`user:${memberId}`).emit("groups updated");
+    return group;
+  });
+  groupsQueue = operation.catch(() => {});
+  try { res.status(201).json(await operation); }
+  catch { res.status(500).json({ error: "Could not create the group." }); }
+});
 app.get("/api/saved-messages", async (req, res) => {
   const user = await getSupabaseUser(req);
   if (!user) return res.status(401).json({ error: "Sign in to view saved messages." });
@@ -148,7 +188,9 @@ function isDirectConversationFor(conversation, userId) {
   return parts.length === 3 && parts[0] === "dm" && parts.slice(1).includes(userId);
 }
 function canAccessConversation(conversation, userId) {
-  return chatRooms.includes(conversation) || isDirectConversationFor(conversation, userId);
+  if (chatRooms.includes(conversation) || isDirectConversationFor(conversation, userId)) return true;
+  if (typeof conversation === "string" && conversation.startsWith("group:")) return Boolean(groups[conversation.slice(6)]?.memberIds.includes(userId));
+  return false;
 }
 function conversationPins(conversation) {
   const ids = new Set(pinnedMessages[conversation] || []);
@@ -232,6 +274,8 @@ async function loadMessages() {
   catch (error) { if (error.code !== "ENOENT") throw error; }
   try { uploads = JSON.parse(await readFile(uploadsFile, "utf8")); }
   catch (error) { if (error.code !== "ENOENT") throw error; }
+  try { groups = JSON.parse(await readFile(groupsFile, "utf8")); }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
 }
 
 function persistMessage(message) {
@@ -304,6 +348,11 @@ io.on("connection", (socket) => {
     sendConversation(socket, room);
   });
 
+  socket.on("join group", (groupId) => {
+    if (typeof groupId !== "string" || !canAccessConversation(`group:${groupId}`, socket.data.userId)) return;
+    sendConversation(socket, `group:${groupId}`);
+  });
+
   socket.on("open direct", (targetId) => {
     if (typeof targetId !== "string" || targetId === socket.data.userId || !usernameByUser.has(targetId)) return;
     const conversation = directConversation(socket.data.userId, targetId);
@@ -340,6 +389,9 @@ io.on("connection", (socket) => {
     if (isDirectConversationFor(conversation, socket.data.userId)) {
       const recipientId = conversation.split(":").slice(1).find((id) => id !== socket.data.userId);
       io.to(`user:${recipientId}`).emit("direct notification", { conversation, fromId: socket.data.userId, fromName: member.name });
+    } else if (conversation.startsWith("group:")) {
+      const group = groups[conversation.slice(6)];
+      group?.memberIds.filter((id) => id !== socket.data.userId).forEach((id) => io.to(`user:${id}`).emit("direct notification", { conversation, fromId: socket.data.userId, fromName: member.name }));
     }
   });
 
