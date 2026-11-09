@@ -24,7 +24,7 @@ loadEnvFile(path.join(__dirname, ".env"));
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
-const dataDirectory = path.join(__dirname, "data");
+const dataDirectory = process.env.DATA_DIR || path.join(__dirname, "data");
 const messageFile = path.join(dataDirectory, "messages.jsonl");
 const savedFile = path.join(dataDirectory, "saved-messages.json");
 const usernameFile = path.join(dataDirectory, "usernames.json");
