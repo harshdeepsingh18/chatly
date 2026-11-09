@@ -181,6 +181,22 @@
     </div>
   </section>
 
+  <section id="media-permission-modal" class="permission-modal hidden" role="dialog" aria-modal="true" aria-labelledby="media-permission-title">
+    <div class="permission-card">
+      <div id="media-permission-icon" class="permission-icon" aria-hidden="true">🎙</div>
+      <p class="permission-kicker">DEVICE ACCESS</p>
+      <h2 id="media-permission-title">Allow microphone access</h2>
+      <p id="media-permission-description">Chatly needs your microphone so you can talk.</p>
+      <div class="permission-items">
+        <div id="permission-mic-item"><span>🎙</span><div><strong>Microphone</strong><small>Send your voice to the other person.</small></div><b>Needed</b></div>
+        <div id="permission-camera-item" class="hidden"><span>▣</span><div><strong>Camera</strong><small>Share your video during the call.</small></div><b>Needed</b></div>
+      </div>
+      <p id="media-permission-help" class="permission-help" aria-live="polite">Tap continue, then choose Allow in your browser’s permission prompt.</p>
+      <button id="media-permission-continue" class="permission-continue" type="button">Continue and allow</button>
+      <button id="media-permission-cancel" class="permission-cancel" type="button">Cancel</button>
+    </div>
+  </section>
+
   <section id="settings-modal" class="call-modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
     <div class="settings-card">
       <div class="settings-heading">

@@ -67,26 +67,64 @@ let voiceStream = null;
 let voiceChunks = [];
 const voiceMessageButton = $("voice-message-btn");
 const voiceMicIcon = '<svg class="voice-mic-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="12" rx="3"></rect><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3m-4 0h8"></path></svg>';
-voiceMessageButton.addEventListener("click", async () => {
-  if (voiceRecorder?.state === "recording") {
-    voiceRecorder.stop();
-    voiceMessageButton.disabled = true;
-    voiceMessageButton.textContent = "…";
-    voiceMessageButton.title = "Finishing recording";
-    return;
-  }
-  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-    addSystemMessage("Voice recording is not supported in this browser. Try a current browser over HTTPS.");
-    return;
-  }
-  if (!authToken || !currentConversation) {
-    addSystemMessage("Sign in and open a chat before recording a voice message.");
-    return;
-  }
+let pendingMediaRequest = null;
+function showMediaPermission(request, help = "Tap continue, then choose Allow in your browser’s permission prompt.") {
+  pendingMediaRequest = request;
+  const voiceMessage = request.kind === "voice-message";
+  $("media-permission-icon").textContent = voiceMessage ? "🎙" : request.video ? "📹" : "🎙";
+  $("media-permission-title").textContent = voiceMessage ? "Record a voice message" : request.video ? "Ready for a video call?" : "Ready for a voice call?";
+  $("media-permission-description").textContent = voiceMessage
+    ? "Allow microphone access to record a voice message in this chat."
+    : request.video ? "Allow both devices so you and your friend can see and hear each other."
+      : "Allow microphone access so you and your friend can talk.";
+  $("permission-camera-item").classList.toggle("hidden", voiceMessage || !request.video);
+  $("media-permission-help").textContent = help;
+  $("media-permission-continue").textContent = "Continue and allow";
+  const canRequest = Boolean(navigator.mediaDevices?.getUserMedia) && window.isSecureContext;
+  $("media-permission-continue").disabled = !canRequest;
+  if (!window.isSecureContext) $("media-permission-help").textContent = "Microphone and camera access needs HTTPS. Open the secure https:// Chatly address on your phone.";
+  else if (!navigator.mediaDevices?.getUserMedia) $("media-permission-help").textContent = "This browser does not provide microphone or camera access. Try an up-to-date browser.";
+  $("media-permission-modal").classList.remove("hidden");
+}
+async function runMediaPermissionRequest() {
+  const request = pendingMediaRequest;
+  if (!request || !navigator.mediaDevices?.getUserMedia || !window.isSecureContext) return;
+  const button = $("media-permission-continue");
+  button.disabled = true;
+  button.textContent = "Waiting for browser permission…";
+  $("media-permission-help").textContent = "Choose Allow in the browser prompt. If no prompt appears, check this site’s permissions in your browser settings.";
+  let stream;
   try {
-    voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: request.video });
+  } catch (error) {
+    let help = "The browser blocked access. Open the site permissions from the address bar, allow the requested devices, then try again.";
+    if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") help = "No matching microphone or camera was found. Connect or enable the device, then try again.";
+    else if (error.name === "NotReadableError" || error.name === "TrackStartError") help = "The device is busy or blocked by your phone. Close other apps using it, then try again.";
+    showMediaPermission(request, help);
+    $("media-permission-continue").textContent = "Try again";
+    return;
+  }
+  pendingMediaRequest = null;
+  $("media-permission-modal").classList.add("hidden");
+  button.disabled = false;
+  button.textContent = "Continue and allow";
+  await request.onGranted(stream);
+}
+function requestMediaPermission(request) {
+  showMediaPermission(request);
+}
+$("media-permission-continue").addEventListener("click", runMediaPermissionRequest);
+$("media-permission-cancel").addEventListener("click", () => {
+  const request = pendingMediaRequest;
+  pendingMediaRequest = null;
+  $("media-permission-modal").classList.add("hidden");
+  request?.onCancel?.();
+});
+function beginVoiceRecording(stream) {
+  voiceStream = stream;
+  try {
     const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"].find((type) => MediaRecorder.isTypeSupported(type));
-    voiceRecorder = new MediaRecorder(voiceStream, mimeType ? { mimeType } : undefined);
+    voiceRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
     voiceChunks = [];
     voiceRecorder.addEventListener("dataavailable", (event) => { if (event.data.size) voiceChunks.push(event.data); });
     voiceRecorder.addEventListener("stop", () => {
@@ -109,11 +147,30 @@ voiceMessageButton.addEventListener("click", async () => {
     voiceMessageButton.innerHTML = '<span class="voice-stop-icon" aria-hidden="true"></span>';
     voiceMessageButton.setAttribute("aria-label", "Stop and send recording");
     voiceMessageButton.title = "Recording… select to stop and send";
-  } catch (error) {
-    voiceStream?.getTracks().forEach((track) => track.stop());
+  } catch {
+    stream.getTracks().forEach((track) => track.stop());
     voiceStream = null;
-    addSystemMessage(error.name === "NotAllowedError" ? "Allow microphone access to record a voice message." : "Could not start voice recording.");
+    voiceRecorder = null;
+    addSystemMessage("Could not start voice recording in this browser.");
   }
+}
+voiceMessageButton.addEventListener("click", () => {
+  if (voiceRecorder?.state === "recording") {
+    voiceRecorder.stop();
+    voiceMessageButton.disabled = true;
+    voiceMessageButton.textContent = "…";
+    voiceMessageButton.title = "Finishing recording";
+    return;
+  }
+  if (typeof MediaRecorder === "undefined") {
+    addSystemMessage("Voice recording is not supported in this browser. Try a current browser over HTTPS.");
+    return;
+  }
+  if (!authToken || !currentConversation) {
+    addSystemMessage("Sign in and open a chat before recording a voice message.");
+    return;
+  }
+  requestMediaPermission({ kind: "voice-message", video: false, onGranted: beginVoiceRecording });
 });
 function activateAuraShortcut() {
   const currentText = input.value.trimStart();
@@ -1513,9 +1570,18 @@ async function startCall(video) {
   const callId = crypto.randomUUID();
   activeCall = { callId, peerId: currentDirectUser.id, peerName: currentDirectUser.name, peerAvatar: currentDirectUser.avatar || "", video, initiator: true, offerSent: false, pendingLocalCandidates: [] };
   setCallVideos(video);
-  showCall(`Calling ${activeCall.peerName}…`);
+  showCall("Waiting for device access…");
+  requestMediaPermission({
+    kind: "call", video,
+    onGranted: (stream) => placeOutgoingCall(stream, callId),
+    onCancel: () => endCall("cancelled", false)
+  });
+}
+async function placeOutgoingCall(stream, callId) {
+  if (!activeCall || activeCall.callId !== callId) { stream.getTracks().forEach((track) => track.stop()); return; }
+  const video = activeCall.video;
   try {
-    localCallStream = await navigator.mediaDevices.getUserMedia({ audio: true, video });
+    localCallStream = stream;
     $("local-video").srcObject = localCallStream;
     createPeerConnection();
     localCallStream.getTracks().forEach((track) => peerConnection.addTrack(track, localCallStream));
@@ -1531,8 +1597,8 @@ async function startCall(video) {
         endCall("no-answer");
       }
     }, 30000);
-  } catch (error) {
-    addSystemMessage(error.name === "NotAllowedError" ? "Allow microphone and camera access to place this call." : "Could not start the call. Check your microphone and camera.");
+  } catch {
+    addSystemMessage("Could not start the call. Check your microphone and camera, then try again.");
     endCall("failed", false);
   }
 }
@@ -1560,11 +1626,20 @@ function createPeerConnection() {
     }
   };
 }
-async function acceptCall() {
+function acceptCall() {
   if (!activeCall || activeCall.initiator) return;
   const call = activeCall;
+  $("incoming-call-actions").classList.add("hidden");
+  requestMediaPermission({
+    kind: "call", video: call.video,
+    onGranted: (stream) => answerIncomingCall(call, stream),
+    onCancel: () => { if (activeCall?.callId === call.callId) showCall(`Incoming ${call.video ? "video" : "voice"} call from ${call.peerName}`, true); }
+  });
+}
+async function answerIncomingCall(call, stream) {
+  if (!activeCall || activeCall.callId !== call.callId) { stream.getTracks().forEach((track) => track.stop()); return; }
   try {
-    localCallStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: call.video });
+    localCallStream = stream;
     $("local-video").srcObject = localCallStream;
     createPeerConnection();
     localCallStream.getTracks().forEach((track) => peerConnection.addTrack(track, localCallStream));
@@ -1574,8 +1649,8 @@ async function acceptCall() {
     await peerConnection.setLocalDescription(answer);
     socket.emit("call answer", { toId: call.peerId, callId: call.callId, answer });
     showCall(`Connecting to ${call.peerName}…`);
-  } catch (error) {
-    addSystemMessage(error.name === "NotAllowedError" ? "Allow microphone and camera access to answer." : "Could not answer the call.");
+  } catch {
+    addSystemMessage("Could not answer the call. Check your microphone and camera, then try again.");
     endCall("failed");
   }
 }
@@ -1588,6 +1663,10 @@ async function flushIceCandidates() {
   }
 }
 function endCall(reason = "ended", notifyPeer = true) {
+  if (pendingMediaRequest?.kind === "call") {
+    pendingMediaRequest = null;
+    $("media-permission-modal").classList.add("hidden");
+  }
   if (activeCall && notifyPeer) socket.emit("call end", { toId: activeCall.peerId, callId: activeCall.callId, reason });
   clearTimeout(callTimeout);
   peerConnection?.close();
