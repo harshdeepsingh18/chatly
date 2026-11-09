@@ -602,16 +602,7 @@ header #details-toggle { width: 36px; height: 36px; border: 1px solid var(--line
   #messages { min-height: 0; padding: .7rem .65rem; overscroll-behavior: contain; }
   .msg { max-width: min(88%, 520px); }
   #typing { min-height: 1.2rem; padding: 0 .7rem; font-size: .75rem; }
-  #message-form { flex: 0 0 auto; gap: .3rem; padding: .5rem max(.55rem, env(safe-area-inset-right)) max(.5rem, env(safe-area-inset-bottom)) max(.55rem, env(safe-area-inset-left)); }
-  #message-form > button { flex: 0 0 36px; width: 36px; min-width: 36px; height: 40px; padding: 0; border-radius: 12px; }
-  #message-form #emoji-btn { font-size: 1.2rem; }
-  #message-form #aura-shortcut-btn { width: 36px; height: 40px; }
-  #message-form #aura-shortcut-btn span { display: none; }
-  #message-form #file-btn { height: 40px; }
-  #message-form #voice-message-btn { flex-basis: 36px; width: 36px; height: 40px; }
-  #message-input { flex: 1 1 auto; width: 0; min-width: 40px; height: 40px; padding: .55rem .75rem; font-size: 16px; }
-  #send-btn { flex: 0 0 auto !important; width: auto !important; min-width: 50px !important; height: 40px !important; padding: 0 .8rem !important; }
-  #emoji-panel { position: fixed; z-index: 15; bottom: calc(58px + env(safe-area-inset-bottom)); left: .55rem; width: min(270px, calc(100vw - 1.1rem)); }
+  #emoji-panel { position: fixed; z-index: 15; left: .55rem; width: min(270px, calc(100vw - 1.1rem)); }
   #details-panel.open { inset: 0 0 0 auto; width: min(340px, 100vw); padding-top: max(1rem, env(safe-area-inset-top)); padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
   .call-modal { align-items: end; padding: .5rem; padding-bottom: max(.5rem, env(safe-area-inset-bottom)); }
   .call-card { width: 100%; max-height: 94dvh; gap: .75rem; padding: .75rem; border-radius: 22px 22px 16px 16px; }
@@ -635,8 +626,47 @@ header #details-toggle { width: 36px; height: 36px; border: 1px solid var(--line
   .conversation-avatar { width: 32px; height: 32px; }
   .conversation-identity { gap: .35rem; }
   #call-controls button, #call-controls #tic-tac-toe-btn, .conversation-tools button { flex-basis: 32px; width: 32px; min-width: 32px; height: 34px; }
-  #message-form { gap: .2rem; padding-left: .35rem; padding-right: .35rem; }
-  #message-form > button, #message-form #aura-shortcut-btn, #message-form #voice-message-btn { flex-basis: 32px; width: 32px; min-width: 32px; }
-  #send-btn { min-width: 44px !important; padding: 0 .55rem !important; }
   .party-game-choice { min-height: 96px; }
+}
+@media (max-width: 700px) {
+  #message-form {
+    display: grid;
+    grid-template-columns: repeat(4, 40px) minmax(0, 1fr) auto;
+    grid-template-rows: 38px 44px;
+    justify-content: stretch;
+    gap: .4rem .5rem;
+    padding: .5rem max(.75rem, env(safe-area-inset-right)) max(.55rem, env(safe-area-inset-bottom)) max(.75rem, env(safe-area-inset-left));
+    background: #17191c;
+  }
+  #emoji-panel { bottom: calc(108px + env(safe-area-inset-bottom)); }
+  #message-form > button {
+    width: 40px;
+    min-width: 40px;
+    height: 38px;
+    flex: initial;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    background: transparent;
+    color: #aeb2ba;
+    transition: color .15s, background .15s, border-color .15s;
+  }
+  #message-form > button:hover, #message-form > button:focus-visible {
+    border-color: rgba(179,154,255,.2);
+    background: rgba(179,154,255,.1);
+    color: #ded3ff;
+  }
+  #message-form #emoji-btn { grid-column: 1; grid-row: 1; font-size: 1.25rem; }
+  #message-form #aura-shortcut-btn { grid-column: 2; grid-row: 1; width: 40px; height: 38px; padding: 0; border-color: transparent; background: transparent; color: #c0aaff; }
+  #message-form #aura-shortcut-btn:hover { border-color: rgba(179,154,255,.2); background: rgba(179,154,255,.1); }
+  #message-form #file-btn { grid-column: 3; grid-row: 1; min-width: 40px; height: 38px; border-radius: 12px; font-size: 1.35rem; }
+  #message-form #voice-message-btn { grid-column: 4; grid-row: 1; width: 40px; min-width: 40px; height: 38px; border-radius: 12px; }
+  #message-form #voice-message-btn.recording { border-color: rgba(255,103,125,.3); background: rgba(217,48,79,.18); color: #ff8291; }
+  #message-form #message-input { grid-column: 1 / 6; grid-row: 2; width: 100%; min-width: 0; height: 44px; padding: .6rem .9rem; border: 1px solid #34383e; border-radius: 15px; background: #23262b; color: #f0f1f3; font-size: 16px; }
+  #message-form #message-input:focus { border-color: rgba(179,154,255,.58); background: #252730; }
+  #message-form #send-btn { grid-column: 6; grid-row: 2; width: 62px !important; min-width: 62px !important; height: 44px !important; padding: 0 .75rem !important; border: 0; border-radius: 14px; background: #b39aff; color: #171222; font-weight: 750; }
+}
+@media (max-width: 380px) {
+  #message-form { grid-template-columns: repeat(4, 36px) minmax(0, 1fr) auto; gap: .35rem .4rem; }
+  #message-form > button, #message-form #aura-shortcut-btn, #message-form #file-btn, #message-form #voice-message-btn { width: 36px; min-width: 36px; }
+  #message-form #send-btn { width: 54px !important; min-width: 54px !important; padding: 0 .5rem !important; }
 }
