@@ -2,6 +2,10 @@
 
 Chatly is a real-time chat app built with Node.js, Express, and Socket.IO. It uses Supabase Auth for Google sign-in and supports private chats, groups, file sharing, voice/video calls, games, and an optional AI study helper.
 
+## Live site
+
+[Open Chatly](https://chatly-1zub.onrender.com)
+
 ## Features
 
 - Google sign-in through Supabase Auth
@@ -83,7 +87,7 @@ Deploy Chatly as a [Render Web Service](https://render.com/docs/web-services) co
 
 3. In the service's [Environment settings](https://render.com/docs/configure-environment-variables), add `SUPABASE_URL` and `SUPABASE_ANON_KEY`. Add `GEMINI_API_KEY` or `OPENAI_API_KEY` only if you want Aura enabled. Do not upload `.env` to the repository.
 4. Create the Render service and wait for its first deploy. Copy the service's `https://….onrender.com` URL.
-5. Add that deployed URL to Supabase **Authentication → URL Configuration** as the Site URL and an allowed redirect URL. Add the Supabase callback URL to the Google OAuth client's authorized redirect URIs.
+5. Add `https://chatly-1zub.onrender.com` to Supabase **Authentication → URL Configuration** as the Site URL and an allowed redirect URL. Add the Supabase callback URL to the Google OAuth client's authorized redirect URIs.
 
 ### Keep chat data between deploys
 
