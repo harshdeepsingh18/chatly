@@ -823,6 +823,38 @@ function renderPartyGame(content, game) {
       game.players.forEach((player, pi) => { if ((game.positions?.[pi] || 0) === number) { const pawn = document.createElement("b"); pawn.className = `board-pawn pawn-${pi}`; pawn.textContent = pi === index ? "●" : "●"; pawn.title = pi === 0 ? "You" : friend?.name || "Friend"; cell.append(pawn); } });
       board.append(cell);
     }
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "snakes-ladders-art");
+    svg.setAttribute("viewBox", "0 0 100 100");
+    svg.setAttribute("aria-hidden", "true");
+    const point = (number) => {
+      const rowFromBottom = Math.floor((number - 1) / 10);
+      const offset = (number - 1) % 10;
+      return [(rowFromBottom % 2 === 0 ? offset : 9 - offset) * 10 + 5, (9 - rowFromBottom) * 10 + 5];
+    };
+    const addPath = (className, d) => {
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("class", className);
+      path.setAttribute("d", d);
+      svg.append(path);
+    };
+    [[4,14],[9,31],[20,38],[28,84],[40,59],[51,67],[63,81],[71,91]].forEach(([from,to]) => {
+      const [x1,y1] = point(from), [x2,y2] = point(to);
+      addPath("ladder-rail", `M ${x1-1.2} ${y1} L ${x2-1.2} ${y2}`);
+      addPath("ladder-rail", `M ${x1+1.2} ${y1} L ${x2+1.2} ${y2}`);
+      for (let step = 1; step < 5; step++) {
+        const t = step / 5, x = x1 + (x2 - x1) * t, y = y1 + (y2 - y1) * t;
+        addPath("ladder-rung", `M ${x-1.3} ${y} L ${x+1.3} ${y}`);
+      }
+    });
+    [[17,7],[54,34],[62,19],[64,60],[87,24],[93,73],[95,75],[99,78]].forEach(([from,to], index) => {
+      const [x1,y1] = point(from), [x2,y2] = point(to);
+      const bend = index % 2 ? 7 : -7;
+      addPath("snake-path", `M ${x1} ${y1} Q ${(x1+x2)/2+bend} ${(y1+y2)/2} ${x2} ${y2}`);
+      const head = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      head.setAttribute("class", "snake-mark-head"); head.setAttribute("cx", String(x1)); head.setAttribute("cy", String(y1)); head.setAttribute("r", "1.65"); svg.append(head);
+    });
+    board.append(svg);
     content.append(board);
     const roll = document.createElement("button"); roll.type = "button"; roll.className = "tic-tac-toe-primary game-roll-button"; roll.textContent = myTurn ? "🎲 Roll dice" : `Position: ${game.positions?.[index] || "Start"}`; roll.disabled = !myTurn; roll.addEventListener("click", () => socket.emit("party-game action", { type, action: "roll" })); content.append(roll);
   } else if (type === "ludo") {

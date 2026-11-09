@@ -467,9 +467,9 @@ function startPartyGame(game) {
   if (game.type === "ludo") { game.tokens = [Array(4).fill(-1), Array(4).fill(-1)]; game.dice = null; game.startOffsets = [0, 26]; }
   if (game.type === "chess") { game.board = initialChessBoard(); game.enPassant = null; }
   if (game.type === "snake-arena") {
-    game.snakes = [[[3,7],[2,7],[1,7]], [[11,7],[12,7],[13,7]]];
-    game.directions = [[1,0],[-1,0]];
-    game.nextDirections = [[1,0],[-1,0]];
+    game.snakes = [[[3,7],[2,7],[1,7]], [[11,3],[11,2],[11,1]]];
+    game.directions = [[1,0],[0,1]];
+    game.nextDirections = [[1,0],[0,1]];
     game.food = [7,7]; game.lengthScores = [0, 0];
   }
 }
@@ -843,7 +843,11 @@ io.on("connection", (socket) => {
       game.dice = crypto.randomInt(1, 7);
       const roll = game.dice;
       const tokens = game.tokens[playerIndex];
-      if (!tokens.some((position) => position < 0 ? roll === 6 : position + roll <= 57) && roll !== 6) { game.dice = null; game.turn = game.players[1 - playerIndex]; }
+      const hasLegalMove = tokens.some((position) => position < 0 ? roll === 6 : position + roll <= 57);
+      if (!hasLegalMove) {
+        game.dice = null;
+        if (roll !== 6) game.turn = game.players[1 - playerIndex];
+      }
     } else if (game.type === "ludo" && action === "move-token" && game.dice != null && Number.isInteger(token) && token >= 0 && token < 4) {
       const roll = game.dice, old = game.tokens[playerIndex][token];
       if (old < 0 ? roll !== 6 : old + roll > 57) return;
@@ -1071,7 +1075,12 @@ const snakeArenaTimer = setInterval(() => {
     if (game.type !== "snake-arena" || game.status !== "playing") continue;
     const heads = game.snakes.map((snake, index) => [snake[0][0] + game.nextDirections[index][0], snake[0][1] + game.nextDirections[index][1]]);
     const eating = heads.map(([x, y]) => x === game.food[0] && y === game.food[1]);
-    const dead = heads.map(([x, y], index) => x < 0 || x >= 15 || y < 0 || y >= 15 || game.snakes[index].slice(0, eating[index] ? undefined : -1).some(([sx, sy]) => sx === x && sy === y) || game.snakes[1 - index].some(([sx, sy]) => sx === x && sy === y));
+    const dead = heads.map(([x, y], index) => {
+      const ownBody = game.snakes[index].slice(0, eating[index] ? undefined : -1);
+      const otherTailMoves = !eating[1 - index];
+      const otherBody = game.snakes[1 - index].slice(0, otherTailMoves ? -1 : undefined);
+      return x < 0 || x >= 15 || y < 0 || y >= 15 || ownBody.some(([sx, sy]) => sx === x && sy === y) || otherBody.some(([sx, sy]) => sx === x && sy === y);
+    });
     if ((heads[0][0] === heads[1][0] && heads[0][1] === heads[1][1]) || (heads[0][0] === game.snakes[1][0][0] && heads[0][1] === game.snakes[1][0][1] && heads[1][0] === game.snakes[0][0][0] && heads[1][1] === game.snakes[0][0][1])) dead[0] = dead[1] = true;
     if (dead[0] || dead[1]) {
       finishPartyGame(game, dead[0] === dead[1] ? null : game.players[dead[0] ? 1 : 0]);
