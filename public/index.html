@@ -15,19 +15,39 @@
 
   <!-- LOGIN SCREEN -->
   <section id="login" class="screen">
-    <div id="login-card" class="login-card">
-      <div class="brand-lockup">
-        <img src="/logo.svg" alt="" class="brand-logo">
-        <div>
-          <h1>Chatly</h1>
-          <p>Good conversations start here.</p>
+    <div class="login-shell">
+      <div class="login-intro">
+        <div class="brand-lockup">
+          <img src="/logo.svg" alt="" class="brand-logo">
+          <div><h1>Chatly</h1><p>Your people, all in one place.</p></div>
         </div>
+        <div class="login-kicker"><span></span> CHAT, PLAY, AND CATCH UP</div>
+        <h2>Make room for<br><em>good conversations.</em></h2>
+        <p class="login-intro-copy">A cozy place to share a thought, swap a photo, or turn a quick hello into an all-night conversation.</p>
+        <div class="login-feature-list">
+          <div><span class="login-feature-icon">✦</span><span><strong>Pick up together</strong><small>Live chats, groups, and saved moments.</small></span></div>
+          <div><span class="login-feature-icon">♟</span><span><strong>Make it a little fun</strong><small>Play a game or jump on a call.</small></span></div>
+        </div>
+        <div class="login-quote"><span class="login-quote-dot"></span><span><strong>A little closer, wherever you are.</strong><small>Made for the people you want to keep close.</small></span></div>
       </div>
-      <p class="welcome-copy">Welcome. Sign in to join your people and catch up in real time.</p>
-      <div id="google-signin">
-        <button id="google-fallback" type="button">Continue with Google</button>
+
+      <div id="login-card" class="login-card">
+        <div class="login-card-mark" aria-hidden="true">✧</div>
+        <p class="login-card-eyebrow">WELCOME TO CHATLY</p>
+        <h2>Let’s get you in.</h2>
+        <p class="login-card-copy">Sign in with Google to find your chats and friends.</p>
+        <div id="google-signin">
+          <button id="google-fallback" type="button">
+            <svg class="google-logo" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5Z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.91c-.58 2.96-2.26 5.48-4.73 7.18l7.58 5.89c4.42-4.08 7.22-10.08 7.22-17.54Z"/><path fill="#FBBC05" d="M10.53 28.59A14.4 14.4 0 0 1 9.75 24c0-1.59.27-3.13.76-4.59l-7.98-6.2A23.9 23.9 0 0 0 0 24c0 3.87.93 7.53 2.56 10.78l7.97-6.19Z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.9-5.91l-7.58-5.89c-2.1 1.41-4.79 2.25-8.32 2.25-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48Z"/></svg>
+            <span id="google-button-label">Continue with Google</span>
+            <span id="google-button-spinner" class="google-button-spinner hidden" aria-hidden="true"></span>
+            <span class="google-button-arrow" aria-hidden="true">→</span>
+          </button>
+        </div>
+        <div class="login-secure-note"><span aria-hidden="true">♙</span><span>Your account is protected by Google sign-in.</span></div>
+        <p id="auth-status" role="status" aria-live="polite"></p>
+        <div class="login-card-footer"><span></span> YOUR SPACE TO STAY IN TOUCH <span></span></div>
       </div>
-      <p id="auth-status" role="status"></p>
     </div>
   </section>
 

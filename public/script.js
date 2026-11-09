@@ -1259,13 +1259,45 @@ $("username-form").addEventListener("submit", async (event) => {
   }
 });
 $("google-fallback").addEventListener("click", async () => {
+  const button = $("google-fallback");
+  const label = $("google-button-label");
+  const spinner = $("google-button-spinner");
+  const status = $("auth-status");
   if (!supabaseClient) {
-    $("auth-status").textContent = "Supabase is not configured. Copy .env.example to .env, add your Supabase Project URL and anon key, then restart the server.";
+    status.className = "auth-error";
+    status.textContent = "Sign-in is not configured yet. Add the Supabase project URL and public key, then restart the server.";
     return;
   }
-  $("auth-status").textContent = "Redirecting to Google…";
-  const { error } = await supabaseClient.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
-  if (error) $("auth-status").textContent = error.message;
+  if (button.disabled) return;
+  button.disabled = true;
+  button.classList.add("is-loading");
+  button.setAttribute("aria-busy", "true");
+  label.textContent = "Connecting to Google…";
+  spinner.classList.remove("hidden");
+  status.className = "auth-loading";
+  status.textContent = "Opening secure sign-in. Keep this page open for a moment.";
+  const restoreButton = () => {
+    button.disabled = false;
+    button.classList.remove("is-loading");
+    button.removeAttribute("aria-busy");
+    label.textContent = "Continue with Google";
+    spinner.classList.add("hidden");
+  };
+  const redirectWait = window.setTimeout(() => {
+    if (loginScreen.classList.contains("hidden") || !button.disabled) return;
+    restoreButton();
+    status.className = "auth-error";
+    status.textContent = "Google sign-in did not open. Check your connection and try again.";
+  }, 15000);
+  try {
+    const { error } = await supabaseClient.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
+    if (error) throw error;
+  } catch (error) {
+    window.clearTimeout(redirectWait);
+    restoreButton();
+    status.className = "auth-error";
+    status.textContent = error.message || "Could not start Google sign-in. Please try again.";
+  }
 });
 if (supabaseClient) {
   supabaseClient.auth.onAuthStateChange((_event, session) => {
