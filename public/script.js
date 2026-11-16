@@ -367,7 +367,8 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
   name.className = "name";
   name.append(createAvatar(user, avatar, "avatar message-avatar"));
   const usernameLabel = document.createElement("span");
-  usernameLabel.textContent = assistant ? "✨ Aura" : user;
+  usernameLabel.textContent = assistant ? "Aura" : user;
+  if (assistant) usernameLabel.classList.add("aura-name");
   name.append(usernameLabel);
 
   const body = document.createElement("span");
