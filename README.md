@@ -14,7 +14,7 @@ Chatly is a real-time chat app built with Node.js, Express, and Socket.IO. It us
 - Saved and pinned messages, search, and file sharing
 - Voice and video calls using WebRTC
 - Multiplayer Tic Tac Toe, Snakes and Ladders, Ludo, Chess, and Snake Arena
-- Optional `@aura` study helper using Gemini or OpenAI
+- Optional AI chat helper using Gemini or OpenAI: ask with `/ai <question>`, summarize with `/ai summarize`, translate recent messages with `/ai translate [language]`, suggest a reply with `/ai reply`, or explain the latest message with `/ai explain`. Existing `@aura` questions also work.
 - Responsive layout and an installable app shell
 
 ## Run locally

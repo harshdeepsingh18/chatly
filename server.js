@@ -635,6 +635,32 @@ async function askAura(prompt) {
   throw new Error("Aura needs a GEMINI_API_KEY or OPENAI_API_KEY in the server .env file.");
 }
 
+function auraPromptForRequest(request, conversation, userId) {
+  const command = request.match(/^\/ai\s+(summarize|translate|reply|explain)\b([\s\S]*)$/i);
+  if (!command) return request.replace(/^\/ai\s*/i, "");
+  const action = command[1].toLowerCase();
+  const option = command[2].trim();
+  const recent = messages.filter((message) => message.conversation === conversation && !message.deleted && message.text?.trim()).slice(-80);
+  const transcript = (items) => items.map((message) => `${message.user}: ${message.text}`).join("\n").slice(-14000);
+  if (action === "summarize") {
+    return `Summarize this chat conversation. Include key points, decisions, and open questions. Be concise.\n\n${transcript(recent.slice(-60))}`;
+  }
+  if (action === "translate") {
+    const language = option || "English";
+    return `Translate the following recent chat messages into ${language}. Keep each speaker label and preserve the original meaning. Return only the translations.\n\n${transcript(recent.slice(-20))}`;
+  }
+  if (action === "reply") {
+    const latest = [...recent].reverse().find((message) => message.senderId !== userId && message.senderId !== "aura");
+    if (!latest) return "Suggest a friendly, natural reply to the latest message in this chat. There is no message from another person to reply to yet.";
+    return `Suggest one concise, natural reply to this message from ${latest.user}. Return only the suggested reply.\n\n${latest.text}`;
+  }
+  const latest = [...recent].reverse().find((message) => message.senderId !== "aura");
+  const target = option || latest?.text || "";
+  return target
+    ? `Explain this chat message in clear, plain language. Mention ambiguity if needed.\n\n${target}`
+    : "Explain the latest message in this conversation in clear, plain language.";
+}
+
 io.on("connection", (socket) => {
   socket.join(`user:${socket.data.userId}`);
   // 1. Someone logs in
@@ -997,13 +1023,13 @@ io.on("connection", (socket) => {
   socket.on("aura request", async (prompt) => {
     const conversation = socket.data.activeConversation;
     prompt = String(prompt || "").trim().slice(0, 1000);
-    if (!conversation || !prompt) return;
+    if (!conversation || !canAccessConversation(conversation, socket.data.userId) || !prompt) return;
     if (!openAiApiKey && !geminiApiKey) return socket.emit("message error", "Aura needs a GEMINI_API_KEY or OPENAI_API_KEY in the server .env file.");
     const lastRequest = auraLastRequestByUser.get(socket.data.userId) || 0;
     if (Date.now() - lastRequest < 4000) return socket.emit("message error", "Give Aura a moment before asking another question.");
     auraLastRequestByUser.set(socket.data.userId, Date.now());
     try {
-      const answer = await askAura(prompt);
+      const answer = await askAura(auraPromptForRequest(prompt, conversation, socket.data.userId));
       const message = {
         id: crypto.randomUUID(), conversation, user: "Aura", senderId: "aura",
         text: answer, time: Date.now(), avatar: "", assistant: true

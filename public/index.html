@@ -122,6 +122,24 @@
 
         <form id="message-form">
           <div id="emoji-panel" class="hidden"></div>
+          <section id="aura-panel" class="aura-panel hidden" aria-label="Aura assistant" aria-modal="false">
+            <div class="aura-panel-heading">
+              <div><strong>✨ Aura</strong><small>Your AI assistant in Chatly</small></div>
+              <button id="aura-panel-close" type="button" aria-label="Close Aura">×</button>
+            </div>
+            <div id="aura-panel-content">
+              <p class="aura-panel-question">What would you like to do?</p>
+              <div class="aura-actions">
+                <button type="button" data-aura-action="summarize"><span>📝</span><strong>Summarize chat</strong></button>
+                <button type="button" data-aura-action="translate"><span>🌐</span><strong>Translate messages</strong></button>
+                <button type="button" data-aura-action="reply"><span>💬</span><strong>Suggest a reply</strong></button>
+                <button type="button" data-aura-action="explain"><span>💡</span><strong>Explain a message</strong></button>
+                <button type="button" data-aura-action="improve"><span>✍️</span><strong>Improve my text</strong></button>
+                <button type="button" data-aura-action="find"><span>🔍</span><strong>Find something in this chat</strong></button>
+                <button type="button" data-aura-action="ask"><span>❓</span><strong>Ask Aura anything</strong></button>
+              </div>
+            </div>
+          </section>
           <button type="button" id="emoji-btn" aria-label="Add emoji">😊</button>
           <button type="button" id="aura-shortcut-btn" title="Ask Aura (Ctrl+Shift+A)" aria-label="Ask Aura">
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m12 2 1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8L12 2Zm7 12 .9 3.1L23 18l-3.1.9L19 22l-.9-3.1L15 18l3.1-.9L19 14Z"></path></svg>
@@ -132,7 +150,7 @@
           <button type="button" id="voice-message-btn" aria-label="Record voice message" title="Record voice message">
             <svg class="voice-mic-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="12" rx="3"></rect><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3m-4 0h8"></path></svg>
           </button>
-          <input id="message-input" type="text" placeholder="Message or @aura ask a question" autocomplete="off">
+          <input id="message-input" type="text" placeholder="Message, /ai summarize, or @aura ask" autocomplete="off" aria-label="Message or ask Aura; try /ai summarize, translate, reply, or explain">
           <button type="submit" id="send-btn" aria-label="Send">Send</button>
         </form>
       </div>

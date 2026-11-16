@@ -22,6 +22,8 @@ let unreadCount = 0;
 const titleBase = "Chatly";
 const attachmentUrls = new Map();
 let selectedFile = null;
+const pendingAuraRequests = new Map();
+let auraPanelReturnToHome = true;
 let activeCall = null;
 let peerConnection = null;
 let localCallStream = null;
@@ -178,7 +180,103 @@ function activateAuraShortcut() {
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
 }
-$("aura-shortcut-btn").addEventListener("click", activateAuraShortcut);
+const auraPanel = $("aura-panel");
+const auraPanelContent = $("aura-panel-content");
+function showAuraHome() {
+  auraPanelContent.innerHTML = `<p class="aura-panel-question">What would you like to do?</p><div class="aura-actions"><button type="button" data-aura-action="summarize"><span>📝</span><strong>Summarize chat</strong></button><button type="button" data-aura-action="translate"><span>🌐</span><strong>Translate messages</strong></button><button type="button" data-aura-action="reply"><span>💬</span><strong>Suggest a reply</strong></button><button type="button" data-aura-action="explain"><span>💡</span><strong>Explain a message</strong></button><button type="button" data-aura-action="improve"><span>✍️</span><strong>Improve my text</strong></button><button type="button" data-aura-action="find"><span>🔍</span><strong>Find something in this chat</strong></button><button type="button" data-aura-action="ask"><span>❓</span><strong>Ask Aura anything</strong></button></div>`;
+}
+function openAuraPanel() {
+  showAuraHome();
+  auraPanel.classList.remove("hidden");
+  $("aura-shortcut-btn").setAttribute("aria-expanded", "true");
+}
+function closeAuraPanel() {
+  auraPanel.classList.add("hidden");
+  $("aura-shortcut-btn").setAttribute("aria-expanded", "false");
+}
+function auraPanelView(title, content) {
+  auraPanelContent.innerHTML = `<button type="button" class="aura-back" data-aura-action="home">‹ All Aura tools</button><p class="aura-panel-question">${title}</p>${content}`;
+}
+function showAuraTextPrompt(action) {
+  const isFind = action === "find";
+  const isImprove = action === "improve";
+  if (isImprove) {
+    auraPanelView("How should Aura improve your text?", `<div class="aura-choice-list">${[
+      ["professional", "Make it professional"], ["friendly", "Make it friendly"], ["grammar", "Fix grammar"], ["shorter", "Make it shorter"], ["clearer", "Make it clearer"]
+    ].map(([value, label]) => `<button type="button" data-aura-style="${value}">${label}</button>`).join("")}</div><p class="aura-panel-note">Aura uses the text in your composer and returns an edit for you to review.</p>`);
+    return;
+  }
+  const title = isFind ? "What would you like to find?" : "Ask Aura anything";
+  const placeholder = isFind ? "What did we decide about the trip?" : "Ask a question…";
+  auraPanelView(title, `<form class="aura-question-form" data-aura-form="${action}"><input name="question" maxlength="800" placeholder="${placeholder}" required><button type="submit">Ask Aura</button></form>`);
+  auraPanelContent.querySelector("input")?.focus();
+}
+function requestAura(prompt, kind = "chat", mode = "chat") {
+  const requestId = window.crypto?.randomUUID?.() || `aura-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  pendingAuraRequests.set(requestId, { kind, mode });
+  auraPanelContent.innerHTML = `<div class="aura-loading" role="status"><span class="aura-spinner" aria-hidden="true"></span><strong>Aura is thinking…</strong><small>Your answer will appear here and in the chat.</small></div>`;
+  socket.emit("aura request", { prompt, requestId, mode });
+}
+function finishAuraRequest(requestId, answer, error = "") {
+  const request = pendingAuraRequests.get(requestId);
+  if (!request) return;
+  pendingAuraRequests.delete(requestId);
+  if (request.mode === "composer" && !error) {
+    input.value = answer;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    auraPanelContent.innerHTML = `<div class="aura-result-note"><strong>Text ready to edit</strong><p>Aura put its suggestion in your composer. Review it before sending.</p><button type="button" class="aura-back" data-aura-action="home">Back to Aura tools</button></div>`;
+    return;
+  }
+  auraPanelContent.innerHTML = error
+    ? `<div class="aura-error" role="alert"><strong>Aura couldn’t finish that request.</strong><p></p><button type="button" class="aura-back" data-aura-action="home">Try another action</button></div>`
+    : `<div class="aura-result-note"><strong>✨ Aura’s answer is in the chat</strong><p>${request.kind === "reply" ? "Choose a suggestion below Aura’s message to use it." : "Your answer is ready in the conversation."}</p><button type="button" class="aura-back" data-aura-action="home">Back to Aura tools</button></div>`;
+  if (error) auraPanelContent.querySelector(".aura-error p").textContent = error;
+}
+$("aura-shortcut-btn").addEventListener("click", openAuraPanel);
+$("aura-panel-close").addEventListener("click", closeAuraPanel);
+auraPanelContent.addEventListener("click", (event) => {
+  const actionButton = event.target.closest("[data-aura-action]");
+  if (actionButton) {
+    const action = actionButton.dataset.auraAction;
+    if (action === "home") return showAuraHome();
+    if (action === "summarize") return auraPanelView("Choose how much chat to summarize", `<div class="aura-choice-list"><button type="button" data-aura-summary="10">Last 10 messages</button><button type="button" data-aura-summary="50">Last 50 messages</button><button type="button" data-aura-summary="all">Entire conversation</button></div>`);
+    if (action === "translate") return auraPanelView("Choose a language", `<div class="aura-choice-list">${["English", "Hindi", "Spanish", "French", "German", "Other"].map((language) => `<button type="button" data-aura-language="${language}">${language}</button>`).join("")}</div>`);
+    if (action === "reply") return requestAura("/ai reply", "reply");
+    if (action === "explain") return requestAura("/ai explain", "explain");
+    if (action === "improve" || action === "find" || action === "ask") return showAuraTextPrompt(action);
+  }
+  const summary = event.target.closest("[data-aura-summary]");
+  if (summary) return requestAura(`/ai summarize ${summary.dataset.auraSummary}`, "summarize");
+  const language = event.target.closest("[data-aura-language]");
+  if (language) {
+    if (language.dataset.auraLanguage === "Other") {
+      auraPanelView("Enter a language", `<form class="aura-question-form" data-aura-form="translate"><input name="question" maxlength="40" placeholder="Language" required><button type="submit">Translate</button></form>`);
+      auraPanelContent.querySelector("input")?.focus();
+      return;
+    }
+    return requestAura(`/ai translate ${language.dataset.auraLanguage}`, "translate");
+  }
+  const style = event.target.closest("[data-aura-style]");
+  if (style) {
+    const text = input.value.trim();
+    if (!text) return auraPanelView("Add some text first", `<p class="aura-panel-note">Type a message in the composer, then choose an improvement style.</p><button type="button" class="aura-back" data-aura-action="improve">Choose a style</button>`);
+    return requestAura(`/ai improve my text. Style: ${style.dataset.auraStyle}. Return only the improved text. Text: ${text}`, "improve", "composer");
+  }
+});
+auraPanelContent.addEventListener("submit", (event) => {
+  const form = event.target.closest("[data-aura-form]");
+  if (!form) return;
+  event.preventDefault();
+  const question = new FormData(form).get("question")?.toString().trim();
+  if (!question) return;
+  if (form.dataset.auraForm === "translate") return requestAura(`/ai translate ${question}`, "translate");
+  const prompt = form.dataset.auraForm === "find" ? `/ai Find something in this chat: ${question}` : `/ai ${question}`;
+  requestAura(prompt, form.dataset.auraForm);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !auraPanel.classList.contains("hidden")) closeAuraPanel();
+});
 window.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "a") {
     event.preventDefault();
@@ -188,6 +286,19 @@ window.addEventListener("keydown", (event) => {
 $("message-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const typedText = input.value.trim();
+  if (/^\/ai(?:\s|$)/i.test(typedText)) {
+    const prompt = typedText.replace(/^\/ai\s*/i, "").trim();
+    if (!prompt) {
+      input.value = "/ai ";
+      input.focus();
+      return;
+    }
+    socket.emit("aura request", `/ai ${prompt}`);
+    input.value = "";
+    emojiPanel.classList.add("hidden");
+    socket.emit("typing", false);
+    return;
+  }
   const slashAuraMatch = typedText.match(/^\/aura(?:\s+([\s\S]+))?$/i);
   const text = slashAuraMatch ? (slashAuraMatch[1] ? `@aura ${slashAuraMatch[1]}` : "") : typedText;
   const file = selectedFile;
@@ -233,7 +344,7 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
   if (showSavedOnly && !savedItems.some((item) => messageKey(item) === key)) return;
   const box = document.createElement("div");
   const ownMessage = senderId ? senderId === currentUserId : user === username;
-  box.className = "msg" + (user === username ? " mine" : "");
+  box.className = "msg" + (user === username ? " mine" : "") + (assistant ? " aura-message" : "");
   if (id) box.dataset.messageId = id;
   const bubble = document.createElement("div");
   bubble.className = "msg-bubble";
@@ -242,7 +353,7 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
   name.className = "name";
   name.append(createAvatar(user, avatar, "avatar message-avatar"));
   const usernameLabel = document.createElement("span");
-  usernameLabel.textContent = user;
+  usernameLabel.textContent = assistant ? "✨ Aura" : user;
   name.append(usernameLabel);
 
   const body = document.createElement("span");
@@ -254,6 +365,30 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
 
   bubble.append(name);
   if (text) bubble.append(body);
+  if (assistant && /\/ai\s+reply\b/i.test(text) === false) {
+    const suggestions = text.split(/\r?\n/).map((line) => line.trim().replace(/^(?:\d+[.)]\s*|[-*•]\s*)/, "").replace(/^['“”"]|['“”"]$/g, "")).filter(Boolean);
+    if (suggestions.length >= 2 && suggestions.length <= 4) {
+      const suggestionList = document.createElement("div");
+      suggestionList.className = "aura-suggestions";
+      suggestions.slice(0, 3).forEach((suggestion) => {
+        const item = document.createElement("div");
+        item.className = "aura-suggestion";
+        const suggestionText = document.createElement("span");
+        suggestionText.textContent = suggestion;
+        const useReply = document.createElement("button");
+        useReply.type = "button";
+        useReply.textContent = "Use reply";
+        useReply.addEventListener("click", () => {
+          input.value = suggestion;
+          input.focus();
+          input.setSelectionRange(input.value.length, input.value.length);
+        });
+        item.append(suggestionText, useReply);
+        suggestionList.append(item);
+      });
+      bubble.append(suggestionList);
+    }
+  }
   if (attachment) {
     const file = document.createElement("div");
     file.className = "message-attachment";
