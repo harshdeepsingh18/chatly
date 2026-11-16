@@ -46,6 +46,55 @@ let supabaseClient = window.CHATLY_SUPABASE_URL && window.CHATLY_SUPABASE_ANON_K
 
 // ----- Grab page elements -----
 const $ = (id) => document.getElementById(id);
+const iconPaths = {
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
+  message: '<path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M20 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
+  settings: '<path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/><path d="m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.7a8 8 0 0 1-1.8 1l-.3 1.8h-2.8l-.3-1.8a8 8 0 0 1-1.8-1l-1.7.7-1.4-2.4L7.1 15a8 8 0 0 1 0-2l-1.4-1.1 1.4-2.4 1.7.7a8 8 0 0 1 1.8-1l.3-1.8h2.8l.3 1.8a8 8 0 0 1 1.8 1l1.7-.7 1.4 2.4-1.4 1.1a8 8 0 0 1-.1 2Z"/>',
+  hash: '<path d="M4 9h16M4 15h16M10 3 8 21m8-18-2 18"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  more: '<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>',
+  star: '<path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.4l6.1-.9L12 3Z"/>',
+  circle: '<circle cx="12" cy="12" r="8.5"/>',
+  moon: '<path d="M20.9 13A9 9 0 0 1 11 3.1 9 9 0 1 0 20.9 13Z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/>',
+  user: '<path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="8" r="5"/>',
+  left: '<path d="m15 18-6-6 6-6"/><path d="M20 12H9"/>',
+  "arrow-up": '<path d="m18 15-6-6-6 6"/>',
+  "arrow-down": '<path d="m6 9 6 6 6-6"/>',
+  "arrow-left": '<path d="m15 18-6-6 6-6"/>',
+  "arrow-right": '<path d="m9 18 6-6-6-6"/>',
+  send: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
+  mic: '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2m-7 9v3m-4 0h8"/>',
+  pin: '<path d="M16 3H8l1 7-4 4v2h6v5l1 1 1-1v-5h6v-2l-4-4 1-7Z"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>',
+  reply: '<path d="m9 17-5-5 5-5"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/>',
+  trash: '<path d="M3 6h18m-2 0-.9 14H5.9L5 6m4 0V4h6v2m-5 4v6m4-6v6"/>',
+  paperclip: '<path d="m21.4 11.1-9.2 9.2a5.5 5.5 0 0 1-7.8-7.8l9.2-9.2a3.5 3.5 0 0 1 4.9 4.9l-9.2 9.2a2 2 0 0 1-2.8-2.8l7.7-7.7"/>',
+  check: '<path d="m20 6-11 11-5-5"/>',
+  gamepad: '<path d="M6 12h4m-2-2v4m7-1h.01M18 11h.01"/><path d="M7 6h10a4 4 0 0 1 3.9 3.1l1.1 5.1a3 3 0 0 1-5 2.8l-2-1.5h-4l-2 1.5a3 3 0 0 1-5-2.8l1.1-5.1A4 4 0 0 1 9 6Z"/>',
+  aura: '<path d="M12 3.5 14 9.8l6.5 2.2-6.5 2.2-2 6.3-2-6.3L3.5 12l6.5-2.2 2-6.3Z"/><path d="m19 3 .8 2.2L22 6l-2.2.8L19 9l-.8-2.2L16 6l2.2-.8L19 3Z"/>',
+  file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6m-4 5H8m8 4H8m2-8H8"/>',
+  languages: '<path d="m5 8 6 6m-7 0 6-6 2-3M2 5h12M7 2h1m10 11 4 9m-4-9-4 9m1-3h6"/>',
+  lightbulb: '<path d="M9 18h6m-5 4h4m-2-20a7 7 0 0 0-4 12.7c.6.4 1 1 1 1.7V18h6v-1.6c0-.7.4-1.3 1-1.7A7 7 0 0 0 12 2Z"/>',
+  pencil: '<path d="m16 5 3 3M4 20l4.5-1 11-11a2.1 2.1 0 0 0-3-3l-11 11L4 20Z"/>',
+  help: '<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3m.1 4h.01"/>',
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+  dice: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 8h.01M16 8h.01M12 12h.01M8 16h.01M16 16h.01"/>',
+  crown: '<path d="m2 8 5 4 5-7 5 7 5-4-2 12H4L2 8Z"/><path d="M4 21h16"/>',
+  activity: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+  x: '<path d="m18 6-12 12M6 6l12 12"/>',
+  sunMoon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/><path d="M19 3v4m-2-2h4"/>'
+};
+function iconSvg(name, className = "lucide-icon") {
+  return `<svg class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${iconPaths[name] || iconPaths.activity}</svg>`;
+}
+function iconLabel(name, label) { return `${iconSvg(name)}<span>${label}</span>`; }
+function iconElement(name, className = "lucide-icon") {
+  const template = document.createElement("template");
+  template.innerHTML = iconSvg(name, className);
+  return template.content.firstElementChild;
+}
 const loginScreen = $("login");
 const usernameScreen = $("username-screen");
 const chatScreen = $("chat");
@@ -78,10 +127,10 @@ let voiceRecorder = null;
 let voiceStream = null;
 let voiceChunks = [];
 const voiceMessageButton = $("voice-message-btn");
-const voiceMicIcon = '<svg class="voice-mic-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="12" rx="3"></rect><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3m-4 0h8"></path></svg>';
+const voiceMicIcon = iconSvg("mic", "voice-mic-icon");
 let pendingMediaRequest = null;
-const micIconSvg = '<svg class="lucide-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3Z"></path><path d="M19 10a7 7 0 0 1-14 0"></path><path d="M12 19v3"></path></svg>';
-const cameraIconSvg = '<svg class="lucide-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"></path><path d="m16 9 5-3v12l-5-3"></path></svg>';
+const micIconSvg = iconSvg("mic");
+const cameraIconSvg = '<svg class="lucide-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 5H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Z"/><path d="m16 10 5-3v10l-5-3"/></svg>';
 function showMediaPermission(request, help = "Tap continue, then choose Allow in your browser’s permission prompt.") {
   pendingMediaRequest = request;
   const voiceMessage = request.kind === "voice-message";
@@ -195,7 +244,21 @@ function activateAuraShortcut() {
 const auraPanel = $("aura-panel");
 const auraPanelContent = $("aura-panel-content");
 function showAuraHome() {
-  auraPanelContent.innerHTML = `<p class="aura-panel-question">What would you like to do?</p><div class="aura-actions"><button type="button" data-aura-action="summarize"><svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18.5V6.5A2.5 2.5 0 0 1 6.5 4h9.4L20 9.1v9.4A2.5 2.5 0 0 1 17.5 21H6.5A2.5 2.5 0 0 1 4 18.5Z"></path><path d="M15.5 4v4.5h4.5"></path><path d="M8 12h8M8 16h8"></path></svg><strong>Summarize chat</strong></button><button type="button" data-aura-action="translate"><svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5h7.5M4 11h10.5M4 15.5h6.5M16.5 5.5v13M14 8.5h5M14 15.5h5"></path><path d="m18 3.5 2.4 2.4 2.2-2.2"></path></svg><strong>Translate messages</strong></button><button type="button" data-aura-action="reply"><svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 9.5V7.2A1.2 1.2 0 0 1 8.2 6h9.8A1.2 1.2 0 0 1 19.2 7.2v7.6A1.2 1.2 0 0 1 18 16H10l-4 4v-4.5H8.2A1.2 1.2 0 0 1 7 14.8v-5.3Z"></path></svg><strong>Suggest a reply</strong></button><button type="button" data-aura-action="explain"><svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8v8.5M8.5 6.6h7M6.7 18.8c.5 1.4 1.7 2.4 3.3 2.4 1.7 0 2.8-1.2 3.3-2.4.5-1.7-.7-3.1-3.3-3.1-2.6 0-3.8 1.4-3.3 3.1Z"></path></svg><strong>Explain a message</strong></button><button type="button" data-aura-action="improve"><svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18.5h16"></path><path d="M7 15.5 12.5 10l2 2 4-4"></path><path d="M17 8.5h2v2"></path><path d="M7 7.5h6"></path></svg><strong>Improve my text</strong></button><button type="button" data-aura-action="find"><svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.6"></circle><path d="m16 16 4 4"></path></svg><strong>Find something in this chat</strong></button><button type="button" data-aura-action="ask"><svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 9.8a3.5 3.5 0 0 1 7 0c0 2.2-2.2 2.9-3.5 4.3-.5.5-.8 1-.8 1.9"></path><path d="M12 18.5h.01"></path><circle cx="12" cy="12" r="9"></circle></svg><strong>Ask Aura anything</strong></button></div>`;
+  const actions = [["summarize", "file", "Summarize chat"], ["translate", "languages", "Translate messages"], ["reply", "reply", "Suggest a reply"], ["explain", "lightbulb", "Explain a message"], ["improve", "pencil", "Improve my text"], ["find", "search", "Find something in this chat"], ["ask", "help", "Ask Aura anything"]];
+  auraPanelContent.replaceChildren();
+  const question = document.createElement("p");
+  question.className = "aura-panel-question";
+  question.textContent = "What would you like to do?";
+  const list = document.createElement("div");
+  list.className = "aura-actions";
+  actions.forEach(([action, icon, label]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.auraAction = action;
+    button.innerHTML = `${iconSvg(icon, "action-icon")}<strong>${label}</strong>`;
+    list.append(button);
+  });
+  auraPanelContent.append(question, list);
 }
 function openAuraPanel() {
   showAuraHome();
@@ -207,7 +270,7 @@ function closeAuraPanel() {
   $("aura-shortcut-btn").setAttribute("aria-expanded", "false");
 }
 function auraPanelView(title, content) {
-  auraPanelContent.innerHTML = `<button type="button" class="aura-back" data-aura-action="home">‹ All Aura tools</button><p class="aura-panel-question">${title}</p>${content}`;
+  auraPanelContent.innerHTML = `<button type="button" class="aura-back" data-aura-action="home">${iconLabel("left", "All Aura tools")}</button><p class="aura-panel-question">${title}</p>${content}`;
 }
 function showAuraTextPrompt(action) {
   const isFind = action === "find";
@@ -249,7 +312,7 @@ function finishAuraRequest(requestId, answer, error = "") {
   }
   auraPanelContent.innerHTML = error
     ? `<div class="aura-error" role="alert"><strong>Aura couldn’t finish that request.</strong><p></p><button type="button" class="aura-back" data-aura-action="home">Try another action</button></div>`
-    : `<div class="aura-result-note"><strong><span class="aura-mark" aria-hidden="true"></span> Aura’s answer is in the chat</strong><p>${request.kind === "reply" ? "Choose a suggestion below Aura’s message to use it." : "Your answer is ready in the conversation."}</p><button type="button" class="aura-back" data-aura-action="home">Back to Aura tools</button></div>`;
+    : `<div class="aura-result-note"><strong>${iconSvg("aura", "lucide-icon aura-icon")} Aura’s answer is in the chat</strong><p>${request.kind === "reply" ? "Choose a suggestion below Aura’s message to use it." : "Your answer is ready in the conversation."}</p><button type="button" class="aura-back" data-aura-action="home">Back to Aura tools</button></div>`;
   if (error) auraPanelContent.querySelector(".aura-error p").textContent = error;
 }
 $("aura-shortcut-btn").addEventListener("click", openAuraPanel);
@@ -345,7 +408,7 @@ $("message-form").addEventListener("submit", async (e) => {
     input.value = "";
     selectedFile = null;
     $("file-input").value = "";
-    $("file-btn").textContent = "+";
+    $("file-btn").innerHTML = iconSvg("plus");
     $("file-btn").title = "Attach a file";
   } catch (error) { addSystemMessage(error.message); }
   finally { $("send-btn").disabled = false; }
@@ -369,8 +432,10 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
   name.className = "name";
   name.append(createAvatar(user, avatar, "avatar message-avatar"));
   const usernameLabel = document.createElement("span");
-  usernameLabel.textContent = assistant ? "Aura" : user;
-  if (assistant) usernameLabel.classList.add("aura-name");
+  if (assistant) {
+    usernameLabel.className = "aura-name";
+    usernameLabel.innerHTML = `${iconSvg("aura", "lucide-icon aura-icon")}<span>Aura</span>`;
+  } else usernameLabel.textContent = user;
   name.append(usernameLabel);
 
   const body = document.createElement("span");
@@ -456,7 +521,7 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
   const menuButton = document.createElement("button");
   menuButton.type = "button";
   menuButton.className = "message-menu-button";
-  menuButton.textContent = "⋯";
+  menuButton.innerHTML = iconSvg("more");
   menuButton.setAttribute("aria-label", "Message options");
   menuButton.setAttribute("aria-expanded", "false");
   const menu = document.createElement("div");
@@ -523,7 +588,7 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
   }
   const replyButton = document.createElement("button");
   replyButton.type = "button";
-  replyButton.textContent = "Reply";
+  replyButton.innerHTML = iconLabel("reply", "Reply");
   replyButton.addEventListener("click", () => {
     input.value = `${user}: ${text}`;
     input.focus();
@@ -534,7 +599,7 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
   if (text) {
     const copyButton = document.createElement("button");
     copyButton.type = "button";
-    copyButton.textContent = "Copy text";
+    copyButton.innerHTML = iconLabel("copy", "Copy text");
     copyButton.addEventListener("click", async () => {
       try { await navigator.clipboard.writeText(text); addSystemMessage("Message copied."); }
       catch { addSystemMessage("Clipboard access is unavailable in this browser."); }
@@ -544,11 +609,11 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
     if (assistant !== true) {
       const explainButton = document.createElement("button");
       explainButton.type = "button";
-      explainButton.textContent = "Explain with Aura";
+      explainButton.innerHTML = iconLabel("activity", "Explain with Aura");
       explainButton.addEventListener("click", () => { socket.emit("aura request", `/ai explain ${text}`); closeMessageMenus(); });
       const translateButton = document.createElement("button");
       translateButton.type = "button";
-      translateButton.textContent = "Translate with Aura";
+      translateButton.innerHTML = iconLabel("message", "Translate with Aura");
       translateButton.addEventListener("click", () => { socket.emit("aura request", `/ai Translate this message into English. Return only the translation.\n\n${text}`); closeMessageMenus(); });
       menu.append(explainButton, translateButton);
     }
@@ -556,14 +621,14 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
   const pin = document.createElement("button");
   pin.type = "button";
   pin.className = "pin-message";
-  pin.textContent = pinnedItems.some((item) => item.id === id) ? "📌 Pinned" : "📌 Pin";
+  pin.innerHTML = iconLabel("pin", pinnedItems.some((item) => item.id === id) ? "Pinned" : "Pin");
   pin.addEventListener("click", () => socket.emit("pin message", id));
   menu.append(pin);
   const save = document.createElement("button");
   save.type = "button";
   save.className = "save-message";
   const isSaved = savedItems.some((item) => messageKey(item) === key);
-  save.textContent = isSaved ? "★ Saved" : "☆ Save";
+  save.innerHTML = iconLabel("star", isSaved ? "Saved" : "Save");
   save.setAttribute("aria-label", isSaved ? "Remove saved message" : "Save message");
   save.addEventListener("click", async () => {
     if (!authToken) { addSystemMessage("Sign in with Google to save messages."); return; }
@@ -582,7 +647,7 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
     remove.type = "button";
     remove.className = "delete-message";
     const attachmentLabel = attachment?.type?.startsWith("audio/") ? "voice message" : "attached file";
-    remove.textContent = attachment ? `Delete message / ${attachmentLabel}` : "Delete message";
+    remove.innerHTML = iconLabel("trash", attachment ? `Delete message / ${attachmentLabel}` : "Delete message");
     remove.setAttribute("aria-label", attachment ? `Delete message and ${attachmentLabel}` : "Delete message");
     remove.addEventListener("click", () => {
       if (window.confirm(attachment ? "Delete this message and its attached file?" : "Delete this message?")) socket.emit("delete message", id);
@@ -667,7 +732,7 @@ function renderPinnedMessages() {
   pinnedItems.forEach((message) => {
     const item = document.createElement("button");
     item.type = "button";
-    item.textContent = `📌 ${message.user}: ${message.text || message.attachment?.name || "Attachment"}`;
+    item.append(iconElement("pin"), document.createTextNode(`${message.user}: ${message.text || message.attachment?.name || "Attachment"}`));
     item.addEventListener("click", () => document.querySelector(`[data-message-id="${message.id}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
     box.append(item);
   });
@@ -832,11 +897,11 @@ socket.on("party game state", (game) => {
 });
 const gameLabels = { "tic-tac-toe": "Tic Tac Toe", "snakes-ladders": "Snakes and Ladders", ludo: "Ludo", chess: "Chess", "snake-arena": "Snake Arena" };
 const gameDetails = {
-  "tic-tac-toe": { icon: "⭕", description: "A quick classic. Get three in a row." },
-  "snakes-ladders": { icon: "🪜", description: "Roll, climb, and race to the finish." },
-  ludo: { icon: "🎲", description: "Bring your tokens home to win." },
-  chess: { icon: "♟️", description: "A thoughtful match, move by move." },
-  "snake-arena": { icon: "🐍", description: "Grow your snake and outlast your rival." }
+  "tic-tac-toe": { icon: "grid", description: "A quick classic. Get three in a row." },
+  "snakes-ladders": { icon: "activity", description: "Roll, climb, and race to the finish." },
+  ludo: { icon: "dice", description: "Bring your tokens home to win." },
+  chess: { icon: "crown", description: "A thoughtful match, move by move." },
+  "snake-arena": { icon: "activity", description: "Grow your snake and outlast your rival." }
 };
 function setGamesFeedback(message, isError = false) {
   const feedback = $("games-feedback");
@@ -933,7 +998,7 @@ function renderTicTacToe() {
     choice.className = "party-game-choice" + (selectedPartyGame === type ? " selected" : "");
     const icon = document.createElement("span");
     icon.className = "game-card-icon";
-    icon.textContent = gameDetails[type].icon;
+      icon.innerHTML = iconSvg(gameDetails[type].icon);
     const name = document.createElement("span");
     name.className = "game-card-name";
     name.textContent = label;
@@ -981,7 +1046,7 @@ function renderTicTacToe() {
   status.className = "tic-tac-toe-status";
   content.append(status);
   if (!game || game.status === "declined" || game.status === "finished") {
-    if (game?.status === "finished") status.textContent = game.winner ? (game.winner === currentUserId ? "You won! 🎉" : `${friend?.name || "Your friend"} won this round.`) : "It's a draw!";
+    if (game?.status === "finished") status.textContent = game.winner ? (game.winner === currentUserId ? "You won!" : `${friend?.name || "Your friend"} won this round.`) : "It's a draw!";
     else if (game?.status === "declined") status.textContent = "Invitation declined. Invite them again when they’re ready.";
     else status.textContent = "Challenge your friend to a quick game.";
     const invite = document.createElement("button");
@@ -1022,8 +1087,9 @@ function renderTicTacToe() {
     const square = document.createElement("button");
     square.type = "button";
     square.className = "tic-tac-toe-square" + (cell ? (cell === game.players[0] ? " mark-x" : " mark-o") : "");
-    square.textContent = cell ? (cell === game.players[0] ? "X" : "O") : "";
-    square.setAttribute("aria-label", `Square ${index + 1}${cell ? `, ${square.textContent}` : ", empty"}`);
+    const mark = cell ? (cell === game.players[0] ? "X" : "O") : "";
+    square.innerHTML = cell ? iconSvg(mark === "X" ? "x" : "circle", "game-mark-icon") : "";
+    square.setAttribute("aria-label", `Square ${index + 1}${cell ? `, ${mark}` : ", empty"}`);
     square.disabled = !myTurn || Boolean(cell);
     square.addEventListener("click", () => socket.emit("tic-tac-toe move", index));
     board.append(square);
@@ -1063,7 +1129,7 @@ function renderPartyGame(content, game) {
   }
   const status = document.createElement("p"); status.className = "tic-tac-toe-status"; content.append(status);
   if (!game || game.status === "idle" || game.status === "declined" || game.status === "finished") {
-    if (game?.status === "finished") status.textContent = game.winner ? (game.winner === currentUserId ? "You won! 🎉" : `${friend?.name || "Your friend"} won.`) : "It's a draw!";
+    if (game?.status === "finished") status.textContent = game.winner ? (game.winner === currentUserId ? "You won!" : `${friend?.name || "Your friend"} won.`) : "It's a draw!";
     else if (game?.status === "declined") status.textContent = "Invite declined. You can ask again later.";
     else status.textContent = `Invite ${friend?.name || "your friend"} to play ${gameLabels[type]}.`;
     const invite = document.createElement("button"); invite.type = "button"; invite.className = "tic-tac-toe-primary"; invite.textContent = game?.status === "finished" ? "Play again" : "Invite to play";
@@ -1092,7 +1158,7 @@ function renderPartyGame(content, game) {
       const cell = document.createElement("div"); cell.className = "snakes-ladders-cell";
       const label = document.createElement("small"); label.textContent = String(number); cell.append(label);
       const jump = jumps.get(number); if (jump) { const mark = document.createElement("i"); mark.className = jump === "L" ? "ladder-mark" : "snake-mark"; mark.textContent = jump; mark.title = jump === "L" ? "Ladder" : "Snake"; cell.append(mark); }
-      game.players.forEach((player, pi) => { if ((game.positions?.[pi] || 0) === number) { const pawn = document.createElement("b"); pawn.className = `board-pawn pawn-${pi}`; pawn.textContent = pi === index ? "●" : "●"; pawn.title = pi === 0 ? "You" : friend?.name || "Friend"; cell.append(pawn); } });
+    game.players.forEach((player, pi) => { if ((game.positions?.[pi] || 0) === number) { const pawn = document.createElement("b"); pawn.className = `board-pawn pawn-${pi}`; pawn.title = pi === 0 ? "You" : friend?.name || "Friend"; cell.append(pawn); } });
       board.append(cell);
     }
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -1128,24 +1194,24 @@ function renderPartyGame(content, game) {
     });
     board.append(svg);
     content.append(board);
-    const roll = document.createElement("button"); roll.type = "button"; roll.className = "tic-tac-toe-primary game-roll-button"; roll.textContent = myTurn ? "🎲 Roll dice" : `Position: ${game.positions?.[index] || "Start"}`; roll.disabled = !myTurn; roll.addEventListener("click", () => socket.emit("party-game action", { type, action: "roll" })); content.append(roll);
+    const roll = document.createElement("button"); roll.type = "button"; roll.className = "tic-tac-toe-primary game-roll-button"; roll.innerHTML = myTurn ? `${iconSvg("dice")}<span>Roll dice</span>` : `Position: ${game.positions?.[index] || "Start"}`; roll.disabled = !myTurn; roll.addEventListener("click", () => socket.emit("party-game action", { type, action: "roll" })); content.append(roll);
   } else if (type === "ludo") {
     const index = game.players.indexOf(currentUserId), myTurn = game.turn === currentUserId;
     const currentRoll = game.dice;
     status.textContent = myTurn ? (currentRoll == null ? "Your turn — roll the dice." : `You rolled a ${currentRoll}. Choose a token.`) : `${friend?.name || "Your friend"} is playing…`;
-    const die = document.createElement("div"); die.className = "ludo-die"; die.textContent = currentRoll || "🎲"; content.append(die);
+    const die = document.createElement("div"); die.className = "ludo-die"; die.innerHTML = currentRoll ? `<span>${currentRoll}</span>` : iconSvg("dice"); content.append(die);
     game.players.forEach((player, pi) => {
       const section = document.createElement("section"); section.className = `ludo-player ludo-player-${pi}`;
       const heading = document.createElement("strong"); heading.textContent = pi === index ? `${username} · You` : friend?.name || "Friend"; section.append(heading);
       const tokens = document.createElement("div"); tokens.className = "ludo-tokens";
       (game.tokens?.[pi] || []).forEach((position, tokenIndex) => {
-        const pawn = document.createElement("button"); pawn.type = "button"; pawn.className = "ludo-token"; pawn.textContent = position < 0 ? "●" : position >= 57 ? "★" : String(position + 1);
+        const pawn = document.createElement("button"); pawn.type = "button"; pawn.className = "ludo-token"; pawn.textContent = position < 0 ? "" : String(position >= 57 ? 58 : position + 1); pawn.classList.toggle("in-yard", position < 0); pawn.classList.toggle("at-home", position >= 57);
         pawn.title = position < 0 ? `Token ${tokenIndex + 1} in yard` : `Token ${tokenIndex + 1}: ${position >= 57 ? "Home" : `step ${position + 1} of 58`}`;
         const legal = pi === index && myTurn && currentRoll != null && (position < 0 ? currentRoll === 6 : position + currentRoll <= 57);
         pawn.disabled = !legal; pawn.classList.toggle("can-move", legal);
         if (pi === index) pawn.addEventListener("click", () => socket.emit("party-game action", { type, action: "move-token", token: tokenIndex }));
         const progress = document.createElement("small"); progress.textContent = position < 0 ? "Yard" : position >= 57 ? "Home" : `${position}/57`;
-        const item = document.createElement("div"); item.className = "ludo-token-item"; item.append(pawn, progress); tokens.append(item);
+    const item = document.createElement("div"); item.className = "ludo-token-item"; item.append(pawn, progress); tokens.append(item);
       });
       section.append(tokens); content.append(section);
     });
@@ -1154,12 +1220,11 @@ function renderPartyGame(content, game) {
     const index = game.players.indexOf(currentUserId), myTurn = game.turn === currentUserId;
     status.textContent = myTurn ? `Your turn — playing ${index === 0 ? "White" : "Black"}.` : `${friend?.name || "Your friend"} is thinking…`;
     const board = document.createElement("div"); board.className = "chess-board";
-    const glyphs = { wK:"♔", wQ:"♕", wR:"♖", wB:"♗", wN:"♘", wP:"♙", bK:"♚", bQ:"♛", bR:"♜", bB:"♝", bN:"♞", bP:"♟" };
     for (let view = 0; view < 64; view++) {
       const squareIndex = index === 0 ? view : 63 - view;
       const row = Math.floor(squareIndex / 8), col = squareIndex % 8, piece = game.board[squareIndex];
       const square = document.createElement("button"); square.type = "button"; square.className = `chess-square ${(row + col) % 2 ? "dark" : "light"}`;
-      if (piece) { square.textContent = glyphs[piece]; square.classList.add(piece[0] === "w" ? "white-piece" : "black-piece"); }
+      if (piece) { square.textContent = piece[1]; square.classList.add(piece[0] === "w" ? "white-piece" : "black-piece"); }
       if (squareIndex === chessSelectedSquare) square.classList.add("selected");
       if (chessLegalSquares.includes(squareIndex)) square.classList.add("legal-target");
       square.disabled = !myTurn;
@@ -1184,7 +1249,7 @@ function renderPartyGame(content, game) {
     }
     content.append(arena);
     const controls = document.createElement("div"); controls.className = "snake-arena-controls";
-    [["↑",0,-1],["←",-1,0],["↓",0,1],["→",1,0]].forEach(([label,dx,dy]) => { const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.setAttribute("aria-label", `Move ${label}`); button.addEventListener("click", () => socket.emit("party-game direction", { dx, dy })); controls.append(button); });
+    [["up",0,-1],["left",-1,0],["down",0,1],["right",1,0]].forEach(([direction,dx,dy]) => { const button = document.createElement("button"); button.type = "button"; button.innerHTML = iconSvg(direction === "up" ? "arrow-up" : direction === "left" ? "arrow-left" : direction === "down" ? "arrow-down" : "arrow-right"); button.setAttribute("aria-label", `Move ${direction}`); button.addEventListener("click", () => socket.emit("party-game direction", { dx, dy })); controls.append(button); });
     content.append(controls);
   }
 }
@@ -1274,7 +1339,7 @@ document.querySelectorAll(".room-button").forEach((button) => {
     clearConversationUnread(currentConversation);
     updateDetailsPanel();
     showSavedOnly = false;
-    $("saved-btn").textContent = "☆ Saved";
+    $("saved-btn").replaceChildren(iconElement("star"), document.createTextNode("Saved"));
     $("conversation-name").textContent = `# ${currentConversation}`;
     document.querySelectorAll(".room-button").forEach((roomButton) => roomButton.classList.toggle("active", roomButton === button));
     document.querySelectorAll(".group-button").forEach((groupButton) => groupButton.classList.remove("active"));
@@ -1301,7 +1366,7 @@ async function loadGroups() {
       button.type = "button";
       button.className = "room-button group-button" + (currentConversation === `group:${group.id}` ? " active" : "");
       button.dataset.groupId = group.id;
-      button.textContent = `▧ ${group.name}`;
+      button.replaceChildren(iconElement("users"), document.createTextNode(group.name));
       button.title = `${group.memberIds.length} members`;
       button.addEventListener("click", () => openGroup(group));
       item.append(button);
@@ -1309,7 +1374,7 @@ async function loadGroups() {
         const addButton = document.createElement("button");
         addButton.type = "button";
         addButton.className = "group-list-add";
-        addButton.textContent = "+";
+        addButton.innerHTML = iconSvg("plus");
         addButton.title = `Add members to ${group.name}`;
         addButton.setAttribute("aria-label", `Add members to ${group.name}`);
         addButton.addEventListener("click", () => showGroupMembersDialog(group));
@@ -1328,9 +1393,9 @@ function openGroup(group) {
   currentConversation = `group:${group.id}`;
   clearConversationUnread(currentConversation);
   showSavedOnly = false;
-  $("saved-btn").textContent = "☆ Saved";
+  $("saved-btn").replaceChildren(iconElement("star"), document.createTextNode("Saved"));
   $("saved-btn").setAttribute("aria-pressed", "false");
-  $("conversation-name").textContent = `▧ ${group.name}`;
+  $("conversation-name").replaceChildren(iconElement("users"), document.createTextNode(group.name));
   document.querySelectorAll(".room-button").forEach((button) => button.classList.remove("active"));
   document.querySelectorAll(".group-button").forEach((button) => button.classList.toggle("active", button.dataset.groupId === group.id));
   $("search-input").value = "";
@@ -1412,14 +1477,14 @@ $("search-input").addEventListener("input", renderMessages);
 $("file-btn").addEventListener("click", () => $("file-input").click());
 $("file-input").addEventListener("change", () => {
   selectedFile = $("file-input").files[0] || null;
-  $("file-btn").textContent = selectedFile ? "✓" : "+";
+  $("file-btn").innerHTML = selectedFile ? iconSvg("check") : iconSvg("plus");
   $("file-btn").title = selectedFile ? selectedFile.name : "Attach a file";
 });
 
 $("saved-btn").addEventListener("click", () => {
   showSavedOnly = !showSavedOnly;
   $("saved-btn").setAttribute("aria-pressed", String(showSavedOnly));
-  $("saved-btn").textContent = showSavedOnly ? "← All messages" : "☆ Saved";
+  $("saved-btn").replaceChildren(iconElement(showSavedOnly ? "left" : "star"), document.createTextNode(showSavedOnly ? "All messages" : "Saved"));
   renderMessages();
 });
 
@@ -1869,7 +1934,7 @@ function addConversationSection(root, title, items) {
     pin.type = "button";
     const isPinned = pinnedConversationIds.includes(item.id);
     pin.className = "conversation-pin" + (isPinned ? " pinned" : "");
-    pin.textContent = isPinned ? "★" : "☆";
+    pin.replaceChildren(iconElement("star"));
     pin.setAttribute("aria-label", isPinned ? `Unpin ${item.name}` : `Pin ${item.name}`);
     pin.setAttribute("aria-pressed", String(isPinned));
     pin.addEventListener("click", (event) => {
@@ -2126,7 +2191,8 @@ function setTheme(theme) {
   const resolved = theme === "system" ? (window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light") : theme;
   document.documentElement.dataset.theme = resolved;
   document.documentElement.dataset.themePreference = theme;
-  $("theme-btn").textContent = resolved === "dark" ? "☀️" : "☾";
+  $("theme-btn").replaceChildren(iconElement(resolved === "dark" ? "sun" : "moon"));
+  $("theme-btn").setAttribute("aria-label", resolved === "dark" ? "Switch to light theme" : "Switch to dark theme");
   document.querySelectorAll("[data-theme-choice]").forEach((button) => {
     const active = button.dataset.themeChoice === theme;
     button.classList.toggle("active", active);

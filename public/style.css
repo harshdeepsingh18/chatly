@@ -1292,29 +1292,6 @@ body {
   background: rgba(233, 226, 220, 0.9);
 }
 
-.aura-mark {
-  display: inline-block;
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #d4d6ef, #a88b63);
-  position: relative;
-  box-shadow: inset 0 0 0 2px rgba(255,255,255,0.72);
-}
-
-.aura-mark::before,
-.aura-mark::after {
-  content: "";
-  position: absolute;
-  inset: 3px;
-  border-radius: 50%;
-  border: 1.5px solid rgba(24, 20, 16, 0.62);
-}
-
-.aura-mark::after {
-  inset: 7px;
-}
-
 .aura-panel-question,
 .aura-result-note strong,
 .aura-error strong {
@@ -2543,3 +2520,72 @@ body {
 .msg .message-text { display: block; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
 .msg .time { width: 100%; }
 .message-actions { top: .35rem; right: .35rem; }
+
+/* Shared Lucide-style icon treatment across static and dynamic controls. */
+.lucide-icon,
+.action-icon,
+.primary-nav-button svg,
+.mobile-nav svg,
+.sidebar-section-heading svg,
+.room-button svg,
+.group-button svg,
+.contact-row svg,
+.conversation-tools svg,
+.snake-arena-controls svg,
+.party-game-choice .game-card-icon svg,
+.game-roll-button svg,
+.message-menu button svg {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vertical-align: middle;
+}
+.primary-nav-button svg, .mobile-nav svg { width: 20px; height: 20px; }
+.sidebar-section-heading svg, .conversation-tools svg { width: 17px; height: 17px; }
+.room-button, .group-button { display: flex; align-items: center; gap: .55rem; }
+.room-button svg, .group-button svg { width: 16px; height: 16px; color: var(--muted); }
+.group-button.active svg, .room-button.active svg { color: var(--accent); }
+.primary-nav-button, .mobile-nav button, header button, .conversation-tools button, #message-form > button { transition: color .16s ease, background .16s ease, border-color .16s ease, transform .16s ease; }
+.primary-nav-button:hover, .mobile-nav button:hover, header button:hover, .conversation-tools button:hover { color: var(--accent); }
+.sidebar-section-heading button:hover { transform: translateY(-1px); }
+.aura-icon { color: var(--accent); }
+.aura-name { display: inline-flex; align-items: center; gap: .35rem; }
+.aura-name::before { display: none !important; }
+.aura-panel-heading strong > .aura-icon { width: 19px; height: 19px; }
+.aura-result-note strong > .aura-icon { width: 18px; height: 18px; margin-right: .3rem; vertical-align: -.2em; }
+header #saved-btn { display: inline-flex; align-items: center; gap: .35rem; }
+header #saved-btn svg, header #theme-btn svg, header #profile-btn svg { width: 17px; height: 17px; }
+header #profile-btn { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; }
+#aura-shortcut-btn { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; }
+#aura-shortcut-btn .aura-icon { width: 18px; height: 18px; }
+#send-btn svg { width: 19px; height: 19px; }
+#file-btn svg, #voice-message-btn svg { width: 19px; height: 19px; }
+.message-menu button { display: flex; align-items: center; gap: .55rem; }
+.message-menu button svg { width: 15px; height: 15px; }
+.message-menu-button { display: grid; place-items: center; }
+.message-menu-button svg { width: 16px; height: 16px; }
+.game-card-icon svg { width: 24px; height: 24px; }
+.game-roll-button { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; }
+.ludo-die svg { width: 30px; height: 30px; stroke: currentColor; }
+.chess-square { font-family: inherit; font-weight: 750; }
+.chess-square.black-piece { color: #30231b; }
+.chess-square.white-piece { color: #fffaf0; }
+.ludo-token.in-yard::after { content: ""; width: 28%; height: 28%; border: 2px solid currentColor; border-radius: 50%; }
+.game-mark-icon { width: min(58%, 38px); height: min(58%, 38px); fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.mark-x .game-mark-icon { color: #ef775c; }
+.mark-o .game-mark-icon { color: #5dc7bd; }
+#message-form #send-btn::after { content: none; }
+.board-pawn { width: clamp(12px,2.3vw,21px); height: clamp(12px,2.3vw,21px); border: 1px solid rgba(255,255,255,.85); border-radius: 50%; box-shadow: 0 2px 5px #59482f; }
+.board-pawn.pawn-0 { background: #a88df0; }
+.board-pawn.pawn-1 { background: #54c7ba; }
+.group-list-add { display: grid; place-items: center; }
+.group-list-add svg { width: 17px; height: 17px; }
+.voice-recording-spinner { display: inline-block; width: 17px; height: 17px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: icon-spin .75s linear infinite; }
+@keyframes icon-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .voice-recording-spinner { animation-duration: 2s; } }
