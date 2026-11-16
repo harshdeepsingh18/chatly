@@ -637,14 +637,17 @@ async function askAura(prompt) {
 
 function auraPromptForRequest(request, conversation, userId) {
   const command = request.match(/^\/ai\s+(summarize|translate|reply|explain)\b([\s\S]*)$/i);
-  if (!command) return request.replace(/^\/ai\s*/i, "");
-  const action = command[1].toLowerCase();
-  const option = command[2].trim();
   const recent = messages.filter((message) => message.conversation === conversation && !message.deleted && message.text?.trim());
   const transcript = (items, limit = 24000) => {
     const text = items.map((message) => `${message.user}: ${message.text}`).join("\n");
     return limit ? text.slice(-limit) : text;
   };
+  if (!command) {
+    const question = request.replace(/^\/ai\s*/i, "");
+    return recent.length ? `${question}\n\nUse this recent conversation context to answer accurately. If the answer is not present in the chat, say so.\n${transcript(recent.slice(-40))}` : question;
+  }
+  const action = command[1].toLowerCase();
+  const option = command[2].trim();
   if (action === "summarize") {
     const count = option === "all" ? null : Number(option);
     const selected = count === null ? recent : recent.slice(-(count === 10 || count === 50 ? count : 60));
@@ -662,8 +665,7 @@ function auraPromptForRequest(request, conversation, userId) {
   const latest = [...recent].reverse().find((message) => message.senderId !== "aura");
   const target = option || latest?.text || "";
   if (target) return `Explain this chat message in clear, plain language. Mention ambiguity if needed.\n\n${target}`;
-  const plainRequest = request.replace(/^\/ai\s*/i, "");
-  return `${plainRequest}\n\nUse this recent conversation context to answer accurately. If the answer is not present in the chat, say so.\n${transcript(recent.slice(-40))}`;
+  return "Explain the latest message in this conversation in clear, plain language.";
 }
 
 io.on("connection", (socket) => {
