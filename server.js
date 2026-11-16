@@ -249,6 +249,41 @@ app.get("/api/group-members", async (req, res) => {
     id, name, avatar: onlineById.get(id)?.avatar || avatarUrlFor(avatarByUser.get(id)), online: onlineById.has(id)
   })).sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name)));
 });
+app.get("/api/search", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in to search Chatly." });
+  const query = String(req.query.q || "").trim().slice(0, 100);
+  if (query.length < 2) return res.json({ people: [], messages: [], files: [], links: [] });
+  const needle = query.toLocaleLowerCase();
+  const people = [...usernameByUser.entries()]
+    .filter(([id, name]) => id !== user.id && name.toLocaleLowerCase().includes(needle))
+    .slice(0, 12)
+    .map(([id, name]) => ({ id, name, avatar: avatarUrlFor(avatarByUser.get(id)) }));
+  const matchingMessages = messages.filter((message) => {
+    if (message.deleted || !canAccessConversation(message.conversation, user.id)) return false;
+    return `${message.user} ${message.text || ""} ${message.attachment?.name || ""}`.toLocaleLowerCase().includes(needle);
+  }).slice(-500).reverse();
+  const results = matchingMessages.slice(0, 20).map((message) => ({
+    id: message.id, conversation: message.conversation, user: message.user,
+    text: message.text || "", time: message.time, attachment: message.attachment || null
+  }));
+  const files = matchingMessages.filter((message) => message.attachment?.name?.toLocaleLowerCase().includes(needle))
+    .slice(0, 12).map((message) => ({
+      id: message.id, conversation: message.conversation, user: message.user,
+      time: message.time, attachment: message.attachment
+    }));
+  const links = [];
+  for (const message of matchingMessages) {
+    const urls = (message.text || "").match(/https?:\/\/[^\s<>()]+/gi) || [];
+    for (const url of urls) {
+      if (!url.toLocaleLowerCase().includes(needle)) continue;
+      links.push({ id: message.id, conversation: message.conversation, user: message.user, time: message.time, url });
+      if (links.length >= 12) break;
+    }
+    if (links.length >= 12) break;
+  }
+  res.json({ people, messages: results, files, links });
+});
 app.post("/api/groups", async (req, res) => {
   const user = await getSupabaseUser(req);
   if (!user) return res.status(401).json({ error: "Sign in first." });
@@ -662,9 +697,11 @@ function auraPromptForRequest(request, conversation, userId) {
     if (!latest) return "Suggest three friendly, natural reply options to the latest message in this chat. There is no message from another person to reply to yet.";
     return `Suggest exactly three concise, natural reply options to this message from ${latest.user}. Put one option on each line, numbered 1., 2., and 3. Return no introduction or commentary.\n\n${latest.text}`;
   }
-  const latest = [...recent].reverse().find((message) => message.senderId !== "aura");
-  const target = option || latest?.text || "";
-  if (target) return `Explain this chat message in clear, plain language. Mention ambiguity if needed.\n\n${target}`;
+  if (action === "explain") {
+    const latest = [...recent].reverse().find((message) => message.senderId !== "aura");
+    const target = option || latest?.text || "";
+    if (target) return `Explain this chat message in clear, plain language. Mention ambiguity if needed.\n\n${target}`;
+  }
   return "Explain the latest message in this conversation in clear, plain language.";
 }
 

@@ -65,30 +65,41 @@
   <!-- CHAT SCREEN -->
   <section id="chat" class="screen hidden">
     <aside id="sidebar">
-      <h2>Rooms</h2>
+      <div class="sidebar-brand"><strong>chatly</strong><span>MESSAGING, WITH ROOM TO BREATHE</span></div>
+      <nav class="primary-nav" aria-label="Main navigation">
+        <button type="button" class="primary-nav-button active" data-page="messages"><span aria-hidden="true">◷</span>Messages</button>
+        <button type="button" class="primary-nav-button" data-page="contacts"><span aria-hidden="true">◉</span>Contacts</button>
+        <button type="button" class="primary-nav-button" data-page="aura"><span aria-hidden="true">✳</span>Aura</button>
+        <button type="button" class="primary-nav-button" data-page="settings"><span aria-hidden="true">⌘</span>Settings</button>
+      </nav>
+      <div class="sidebar-section-heading"><h2>INBOX</h2><button id="sidebar-search-btn" type="button" aria-label="Search Chatly" title="Search Chatly">⌕</button></div>
       <nav id="room-list" aria-label="Chat rooms">
-        <button type="button" class="room-button active" data-room="general"># general</button>
-        <button type="button" class="room-button" data-room="doubts"># doubts</button>
-        <button type="button" class="room-button" data-room="notes"># notes</button>
+        <button type="button" class="room-button active" data-room="general"><span class="room-mark">○</span>General</button>
+        <button type="button" class="room-button" data-room="doubts"><span class="room-mark">○</span>Doubts</button>
+        <button type="button" class="room-button" data-room="notes"><span class="room-mark">○</span>Notes</button>
       </nav>
       <nav class="sidebar-features" aria-label="Chatly features">
         <button id="games-nav-btn" class="games-nav-button" type="button" aria-current="false">
           <span aria-hidden="true">🎮</span><span>Games</span><small>5</small>
         </button>
       </nav>
-      <div class="group-heading"><h2>My groups</h2><button id="create-group-btn" type="button" aria-label="Create a group" title="Create a group">+</button></div>
+      <div class="group-heading"><h2>GROUPS</h2><button id="create-group-btn" type="button" aria-label="Create a group" title="Create a group">+</button></div>
       <nav id="group-list" class="room-list" aria-label="Your group chats"></nav>
-      <h2>Online <span id="online-count">0</span></h2>
+      <h2 class="online-heading">PEOPLE <span id="online-count">0</span></h2>
       <ul id="user-list"></ul>
+      <div class="sidebar-bottom">
+        <button id="focus-toggle" type="button" aria-pressed="false"><span class="focus-dot"></span><span><strong>Focus</strong><small id="focus-label">Quiet your notifications</small></span></button>
+      </div>
     </aside>
 
     <main>
       <header>
         <button id="menu-btn" aria-label="Show online users">☰</button>
         <div class="title">
-          <strong><img src="/logo.svg" alt="" class="header-logo"> Chatly</strong>
+          <strong class="wordmark">chatly</strong>
           <small id="me"></small>
         </div>
+        <button id="global-search-open" type="button" aria-label="Search messages, people, files and links" title="Search Chatly">⌕</button>
         <button id="saved-btn" type="button" aria-pressed="false">☆ Saved</button>
         <button id="theme-btn" aria-label="Switch light or dark mode">🌙</button>
         <button id="profile-btn" type="button" aria-label="Profile and settings" title="Profile and settings">Profile</button>
@@ -154,6 +165,11 @@
           <button type="submit" id="send-btn" aria-label="Send">Send</button>
         </form>
       </div>
+      <section id="contacts-section" class="contacts-section hidden" aria-labelledby="contacts-title">
+        <div class="editorial-page-heading"><p class="eyebrow">YOUR PEOPLE</p><h1 id="contacts-title">Contacts</h1><p>People you can reach on Chatly.</p></div>
+        <label class="contacts-search"><span aria-hidden="true">⌕</span><input id="contacts-filter" type="search" placeholder="Find a person" aria-label="Find a contact"></label>
+        <div id="contacts-list" class="contacts-list" aria-live="polite"></div>
+      </section>
       <section id="games-section" class="games-section hidden" aria-labelledby="games-title">
         <div class="games-page-heading">
           <div class="games-heading-top">
@@ -167,6 +183,12 @@
         <p id="games-feedback" class="games-feedback" role="status" aria-live="polite"></p>
         <div id="tic-tac-toe-content" class="games-content"></div>
       </section>
+      <nav id="mobile-nav" class="mobile-nav" aria-label="Main navigation">
+        <button type="button" class="active" data-page="messages"><span aria-hidden="true">◷</span><small>Messages</small></button>
+        <button type="button" data-page="contacts"><span aria-hidden="true">◉</span><small>Contacts</small></button>
+        <button type="button" data-page="aura"><span aria-hidden="true">✳</span><small>Aura</small></button>
+        <button type="button" data-page="settings"><span aria-hidden="true">⌘</span><small>Settings</small></button>
+      </nav>
     </main>
     <aside id="details-panel" aria-label="Conversation details">
       <div class="details-heading"><h2>Contact details</h2><button id="details-close" type="button" aria-label="Close contact details">×</button></div>
@@ -188,6 +210,14 @@
         <div id="details-files" class="details-files"><span class="details-empty">No shared files yet</span></div>
       </section>
     </aside>
+  </section>
+
+  <section id="global-search-modal" class="global-search-modal hidden" role="dialog" aria-modal="true" aria-labelledby="global-search-title">
+    <div class="global-search-card">
+      <div class="global-search-heading"><div><p class="eyebrow">CHATLY SEARCH</p><h2 id="global-search-title">Find a conversation detail</h2></div><button id="global-search-close" type="button" aria-label="Close search">×</button></div>
+      <label class="global-search-field"><span aria-hidden="true">⌕</span><input id="global-search-input" type="search" placeholder="Search messages, people, files, links…" autocomplete="off"></label>
+      <div id="global-search-results" class="global-search-results" aria-live="polite"><p class="search-empty">Search across your conversations and contacts.</p></div>
+    </div>
   </section>
 
   <section id="call-modal" class="call-modal hidden" role="dialog" aria-modal="true" aria-labelledby="call-status">
@@ -253,6 +283,18 @@
           <button id="google-avatar-btn" type="button">Use Google photo</button>
         </div>
         <p id="avatar-status" role="status"></p>
+      </section>
+      <section class="settings-preferences">
+        <p class="settings-section-label">APPEARANCE</p>
+        <div class="theme-preference" role="group" aria-label="Appearance theme">
+          <button type="button" data-theme-choice="light">Light</button>
+          <button type="button" data-theme-choice="dark">Dark</button>
+          <button type="button" data-theme-choice="system">System</button>
+        </div>
+      </section>
+      <section class="settings-preferences">
+        <p class="settings-section-label">NOTIFICATIONS</p>
+        <div class="focus-settings-row"><div><strong>Focus mode</strong><small>Pause sounds and alerts while you concentrate.</small></div><button id="settings-focus-toggle" type="button">Turn on</button></div>
       </section>
       <form id="settings-username-form">
         <label for="settings-username">Chat username</label>

@@ -17,6 +17,11 @@ let chessLegalSquares = [];
 let pinnedItems = [];
 let onlineUserCache = [];
 let myGroups = [];
+let contactsCache = [];
+let globalSearchTimer = null;
+let globalSearchSequence = 0;
+let focusUntil = 0;
+try { focusUntil = Number(localStorage.getItem("chatly-focus-until") || 0); } catch {}
 let editingGroupId = null;
 let unreadCount = 0;
 const titleBase = "Chatly";
@@ -208,8 +213,15 @@ function showAuraTextPrompt(action) {
   }
   const title = isFind ? "What would you like to find?" : "Ask Aura anything";
   const placeholder = isFind ? "What did we decide about the trip?" : "Ask a question…";
-  auraPanelView(title, `<form class="aura-question-form" data-aura-form="${action}"><input name="question" maxlength="800" placeholder="${placeholder}" required><button type="submit">Ask Aura</button></form>`);
+  auraPanelView(title, `<div class="aura-question-form" data-aura-form="${action}"><input name="question" maxlength="800" placeholder="${placeholder}" required><button type="button" data-aura-submit>Ask Aura</button></div>`);
   auraPanelContent.querySelector("input")?.focus();
+}
+function submitAuraQuestion(form) {
+  const question = form.querySelector("input")?.value.trim();
+  if (!question) return;
+  if (form.dataset.auraForm === "translate") return requestAura(`/ai translate ${question}`, "translate");
+  const prompt = form.dataset.auraForm === "find" ? `/ai Find something in this chat: ${question}` : `/ai ${question}`;
+  requestAura(prompt, form.dataset.auraForm);
 }
 function requestAura(prompt, kind = "chat", mode = "chat") {
   const requestId = window.crypto?.randomUUID?.() || `aura-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -246,12 +258,14 @@ auraPanelContent.addEventListener("click", (event) => {
     if (action === "explain") return requestAura("/ai explain", "explain");
     if (action === "improve" || action === "find" || action === "ask") return showAuraTextPrompt(action);
   }
+  const askButton = event.target.closest("[data-aura-submit]");
+  if (askButton) return submitAuraQuestion(askButton.closest("[data-aura-form]"));
   const summary = event.target.closest("[data-aura-summary]");
   if (summary) return requestAura(`/ai summarize ${summary.dataset.auraSummary}`, "summarize");
   const language = event.target.closest("[data-aura-language]");
   if (language) {
     if (language.dataset.auraLanguage === "Other") {
-      auraPanelView("Enter a language", `<form class="aura-question-form" data-aura-form="translate"><input name="question" maxlength="40" placeholder="Language" required><button type="submit">Translate</button></form>`);
+      auraPanelView("Enter a language", `<div class="aura-question-form" data-aura-form="translate"><input name="question" maxlength="40" placeholder="Language" required><button type="button" data-aura-submit>Translate</button></div>`);
       auraPanelContent.querySelector("input")?.focus();
       return;
     }
@@ -264,15 +278,10 @@ auraPanelContent.addEventListener("click", (event) => {
     return requestAura(`/ai improve my text. Style: ${style.dataset.auraStyle}. Return only the improved text. Text: ${text}`, "improve", "composer");
   }
 });
-auraPanelContent.addEventListener("submit", (event) => {
-  const form = event.target.closest("[data-aura-form]");
-  if (!form) return;
+ auraPanelContent.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || !event.target.matches(".aura-question-form input")) return;
   event.preventDefault();
-  const question = new FormData(form).get("question")?.toString().trim();
-  if (!question) return;
-  if (form.dataset.auraForm === "translate") return requestAura(`/ai translate ${question}`, "translate");
-  const prompt = form.dataset.auraForm === "find" ? `/ai Find something in this chat: ${question}` : `/ai ${question}`;
-  requestAura(prompt, form.dataset.auraForm);
+  submitAuraQuestion(event.target.closest("[data-aura-form]"));
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !auraPanel.classList.contains("hidden")) closeAuraPanel();
@@ -624,7 +633,35 @@ function renderPinnedMessages() {
 }
 
 function updateTabTitle() { document.title = unreadCount ? `(${unreadCount}) ${titleBase}` : titleBase; }
+function updateFocusUi() {
+  const active = focusUntil > Date.now();
+  if (focusUntil && !active) {
+    focusUntil = 0;
+    try { localStorage.removeItem("chatly-focus-until"); } catch {}
+  }
+  const button = $("focus-toggle");
+  if (button) {
+    button.setAttribute("aria-pressed", String(active));
+    button.classList.toggle("is-active", active);
+    $("focus-label").textContent = active ? `Until ${new Date(focusUntil).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Quiet your notifications";
+  }
+  const settingsButton = $("settings-focus-toggle");
+  if (settingsButton) settingsButton.textContent = active ? "Resume" : "Turn on";
+  document.body.classList.toggle("focus-active", active);
+}
+function setFocusMode(active) {
+  focusUntil = active ? Date.now() + 60 * 60 * 1000 : 0;
+  try {
+    if (focusUntil) localStorage.setItem("chatly-focus-until", String(focusUntil));
+    else localStorage.removeItem("chatly-focus-until");
+  } catch {}
+  updateFocusUi();
+}
+function isFocusModeActive() { return focusUntil > Date.now(); }
+updateFocusUi();
+setInterval(updateFocusUi, 30000);
 function incrementUnread(label) {
+  if (isFocusModeActive()) return;
   unreadCount += 1;
   updateTabTitle();
   playMessageSound();
@@ -1157,7 +1194,7 @@ socket.on("chat message", (message) => {
   updateDetailsPanel();
   if (message.user !== username) {
     if (document.visibilityState !== "visible") incrementUnread("New message");
-    else playMessageSound();
+    else if (!isFocusModeActive()) playMessageSound();
   }
 });
 socket.on("message deleted", ({ message, conversation, pinned }) => {
@@ -1597,6 +1634,197 @@ socket.on("user list", (users) => {
   });
   updateDetailsPanel();
   if (!$("games-section").classList.contains("hidden") && !currentDirectUser) renderGamesView();
+});
+
+function renderContacts() {
+  const list = $("contacts-list");
+  const query = $("contacts-filter").value.trim().toLocaleLowerCase();
+  const onlineById = new Map(onlineUserCache.map((person) => [person.id, person]));
+  const contacts = contactsCache.filter((person) => person.name.toLocaleLowerCase().includes(query)).sort((a, b) => a.name.localeCompare(b.name));
+  list.replaceChildren();
+  if (!contacts.length) {
+    const empty = document.createElement("p");
+    empty.className = "contacts-empty";
+    empty.textContent = query ? "No contacts match that name." : "No contacts to show yet.";
+    list.append(empty);
+    return;
+  }
+  const byInitial = new Map();
+  contacts.forEach((person) => {
+    const initial = person.name.trim().charAt(0).toLocaleUpperCase() || "#";
+    if (!byInitial.has(initial)) byInitial.set(initial, []);
+    byInitial.get(initial).push(person);
+  });
+  [...byInitial.entries()].sort(([a], [b]) => a.localeCompare(b)).forEach(([initial, people]) => {
+    const section = document.createElement("section");
+    section.className = "contact-letter-group";
+    const heading = document.createElement("h2");
+    heading.textContent = initial;
+    section.append(heading);
+    people.forEach((person) => {
+      const online = onlineById.get(person.id);
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "contact-row";
+      row.append(createAvatar(person.name, online?.avatar || person.avatar, "avatar contact-avatar"));
+      const info = document.createElement("span");
+      info.className = "contact-info";
+      const name = document.createElement("strong");
+      name.textContent = person.name;
+      const status = document.createElement("small");
+      status.textContent = online ? "Available now" : "Chatly contact";
+      info.append(name, status);
+      const statusDot = document.createElement("span");
+      statusDot.className = online ? "contact-online" : "contact-offline";
+      statusDot.setAttribute("aria-label", online ? "Online" : "Offline");
+      row.append(info, statusDot);
+      row.addEventListener("click", () => {
+        setAppPage("messages");
+        socket.emit("open direct", person.id);
+      });
+      section.append(row);
+    });
+    list.append(section);
+  });
+}
+async function loadContacts() {
+  if (!authToken) return;
+  try {
+    const response = await fetch("/api/group-members", { headers: { Authorization: `Bearer ${authToken}` } });
+    const members = await response.json();
+    if (!response.ok) throw new Error(members.error || "Could not load contacts.");
+    contactsCache = members;
+    renderContacts();
+  } catch (error) {
+    $("contacts-list").textContent = error.message;
+  }
+}
+function setAppPage(page) {
+  document.querySelectorAll("[data-page]").forEach((button) => {
+    const active = button.dataset.page === page;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-current", active ? "page" : "false");
+  });
+  sidebar.classList.remove("open");
+  if (page === "contacts") {
+    closeGamesSection();
+    $("conversation-view").classList.add("hidden");
+    $("contacts-section").classList.remove("hidden");
+    loadContacts();
+  } else if (page === "messages") {
+    $("contacts-section").classList.add("hidden");
+    $("conversation-view").classList.remove("hidden");
+  } else if (page === "aura") {
+    setAppPage("messages");
+    openAuraPanel();
+  } else if (page === "settings") {
+    setAppPage("messages");
+    updateProfilePanel();
+    $("settings-status").textContent = "";
+    $("settings-modal").classList.remove("hidden");
+  }
+}
+document.querySelectorAll("[data-page]").forEach((button) => button.addEventListener("click", () => setAppPage(button.dataset.page)));
+$("contacts-filter").addEventListener("input", renderContacts);
+
+function openConversationResult(conversation) {
+  setAppPage("messages");
+  const roomButton = [...document.querySelectorAll(".room-button[data-room]")].find((button) => button.dataset.room === conversation);
+  if (roomButton) return roomButton.click();
+  if (conversation.startsWith("group:")) {
+    const group = myGroups.find((item) => item.id === conversation.slice(6));
+    if (group) return openGroup(group);
+  }
+  if (conversation.startsWith("dm:")) {
+    const peerId = conversation.slice(3).split(":").find((id) => id !== currentUserId);
+    if (peerId) socket.emit("open direct", peerId);
+  }
+}
+function addSearchResultGroup(root, title, items, labelFor, activate) {
+  if (!items.length) return;
+  const section = document.createElement("section");
+  section.className = "search-result-group";
+  const heading = document.createElement("h3");
+  heading.textContent = title;
+  section.append(heading);
+  items.forEach((item) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "search-result-row";
+    const label = labelFor(item);
+    const primary = document.createElement("strong");
+    primary.textContent = label.primary;
+    const secondary = document.createElement("small");
+    secondary.textContent = label.secondary;
+    button.append(primary, secondary);
+    button.addEventListener("click", () => activate(item));
+    section.append(button);
+  });
+  root.append(section);
+}
+function renderGlobalSearch(data) {
+  const root = $("global-search-results");
+  root.replaceChildren();
+  addSearchResultGroup(root, "PEOPLE", data.people, (person) => ({ primary: person.name, secondary: "Open a direct conversation" }), (person) => {
+    $("global-search-modal").classList.add("hidden");
+    setAppPage("messages");
+    socket.emit("open direct", person.id);
+  });
+  addSearchResultGroup(root, "MESSAGES", data.messages, (message) => ({ primary: message.user, secondary: message.text || message.attachment?.name || "Shared a file" }), (message) => {
+    $("global-search-modal").classList.add("hidden");
+    openConversationResult(message.conversation);
+  });
+  addSearchResultGroup(root, "FILES", data.files, (file) => ({ primary: file.attachment?.name || "Shared file", secondary: `${file.user} · ${new Date(file.time).toLocaleDateString()}` }), (file) => {
+    $("global-search-modal").classList.add("hidden");
+    openConversationResult(file.conversation);
+  });
+  addSearchResultGroup(root, "LINKS", data.links, (link) => ({ primary: link.url, secondary: `${link.user} · ${new Date(link.time).toLocaleDateString()}` }), (link) => {
+    $("global-search-modal").classList.add("hidden");
+    openConversationResult(link.conversation);
+  });
+  if (!root.children.length) {
+    const empty = document.createElement("p");
+    empty.className = "search-empty";
+    empty.textContent = "No matches found.";
+    root.append(empty);
+  }
+}
+async function searchChatly(query) {
+  const sequence = ++globalSearchSequence;
+  const root = $("global-search-results");
+  if (query.trim().length < 2) {
+    root.innerHTML = '<p class="search-empty">Enter at least two characters to search.</p>';
+    return;
+  }
+  root.innerHTML = '<p class="search-empty">Searching your conversations…</p>';
+  try {
+    const response = await fetch(`/api/search?q=${encodeURIComponent(query.trim())}`, { headers: { Authorization: `Bearer ${authToken}` } });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Search is unavailable.");
+    if (sequence === globalSearchSequence) renderGlobalSearch(data);
+  } catch (error) {
+    if (sequence === globalSearchSequence) root.textContent = error.message;
+  }
+}
+function openGlobalSearch() {
+  $("global-search-modal").classList.remove("hidden");
+  $("global-search-input").focus();
+}
+function closeGlobalSearch() { $("global-search-modal").classList.add("hidden"); }
+$("global-search-open").addEventListener("click", openGlobalSearch);
+$("sidebar-search-btn").addEventListener("click", openGlobalSearch);
+$("global-search-close").addEventListener("click", closeGlobalSearch);
+$("global-search-modal").addEventListener("click", (event) => { if (event.target === $("global-search-modal")) closeGlobalSearch(); });
+$("global-search-input").addEventListener("input", () => {
+  clearTimeout(globalSearchTimer);
+  globalSearchTimer = setTimeout(() => searchChatly($("global-search-input").value), 220);
+});
+document.addEventListener("keydown", (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    openGlobalSearch();
+  }
+  if (event.key === "Escape") closeGlobalSearch();
 });
 
 function updateDetailsPanel() {
