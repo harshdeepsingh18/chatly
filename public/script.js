@@ -1218,6 +1218,7 @@ socket.on("aura response error", ({ requestId, error }) => finishAuraRequest(req
 
 document.querySelectorAll(".room-button").forEach((button) => {
   button.addEventListener("click", () => {
+    setAppPage("messages");
     closeGamesSection();
     currentDirectUser = null;
     $("call-controls").classList.add("hidden");
@@ -1270,6 +1271,7 @@ async function loadGroups() {
   } catch (error) { addSystemMessage(error.message); }
 }
 function openGroup(group) {
+  setAppPage("messages");
   closeGamesSection();
   currentDirectUser = null;
   $("call-controls").classList.add("hidden");
@@ -1623,6 +1625,7 @@ socket.on("user list", (users) => {
     label.textContent = name;
     label.title = `Message ${name}`;
     label.addEventListener("click", () => {
+      setAppPage("messages");
       if (id !== currentUserId) socket.emit("open direct", id);
       sidebar.classList.remove("open");
     });
@@ -1699,12 +1702,15 @@ async function loadContacts() {
     $("contacts-list").textContent = error.message;
   }
 }
-function setAppPage(page) {
+function markAppPageActive(page) {
   document.querySelectorAll("[data-page]").forEach((button) => {
     const active = button.dataset.page === page;
     button.classList.toggle("active", active);
     button.setAttribute("aria-current", active ? "page" : "false");
   });
+}
+function setAppPage(page) {
+  markAppPageActive(page);
   sidebar.classList.remove("open");
   if (page === "contacts") {
     closeGamesSection();
@@ -1712,13 +1718,16 @@ function setAppPage(page) {
     $("contacts-section").classList.remove("hidden");
     loadContacts();
   } else if (page === "messages") {
+    closeGamesSection();
     $("contacts-section").classList.add("hidden");
     $("conversation-view").classList.remove("hidden");
   } else if (page === "aura") {
     setAppPage("messages");
+    markAppPageActive("aura");
     openAuraPanel();
   } else if (page === "settings") {
     setAppPage("messages");
+    markAppPageActive("settings");
     updateProfilePanel();
     $("settings-status").textContent = "";
     $("settings-modal").classList.remove("hidden");
@@ -1726,6 +1735,8 @@ function setAppPage(page) {
 }
 document.querySelectorAll("[data-page]").forEach((button) => button.addEventListener("click", () => setAppPage(button.dataset.page)));
 $("contacts-filter").addEventListener("input", renderContacts);
+$("focus-toggle").addEventListener("click", () => setFocusMode(!isFocusModeActive()));
+$("settings-focus-toggle").addEventListener("click", () => setFocusMode(!isFocusModeActive()));
 
 function openConversationResult(conversation) {
   setAppPage("messages");
