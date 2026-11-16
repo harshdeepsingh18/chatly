@@ -640,10 +640,15 @@ function auraPromptForRequest(request, conversation, userId) {
   if (!command) return request.replace(/^\/ai\s*/i, "");
   const action = command[1].toLowerCase();
   const option = command[2].trim();
-  const recent = messages.filter((message) => message.conversation === conversation && !message.deleted && message.text?.trim()).slice(-80);
-  const transcript = (items) => items.map((message) => `${message.user}: ${message.text}`).join("\n").slice(-14000);
+  const recent = messages.filter((message) => message.conversation === conversation && !message.deleted && message.text?.trim());
+  const transcript = (items, limit = 24000) => {
+    const text = items.map((message) => `${message.user}: ${message.text}`).join("\n");
+    return limit ? text.slice(-limit) : text;
+  };
   if (action === "summarize") {
-    return `Summarize this chat conversation. Include key points, decisions, and open questions. Be concise.\n\n${transcript(recent.slice(-60))}`;
+    const count = option === "all" ? null : Number(option);
+    const selected = count === null ? recent : recent.slice(-(count === 10 || count === 50 ? count : 60));
+    return `Summarize this ${count === null ? "entire" : `conversation segment (${selected.length} most recent messages)`}. Include key points, decisions, and open questions. Be concise.\n\n${transcript(selected, count === null ? 0 : 24000)}`;
   }
   if (action === "translate") {
     const language = option || "English";
@@ -651,14 +656,14 @@ function auraPromptForRequest(request, conversation, userId) {
   }
   if (action === "reply") {
     const latest = [...recent].reverse().find((message) => message.senderId !== userId && message.senderId !== "aura");
-    if (!latest) return "Suggest a friendly, natural reply to the latest message in this chat. There is no message from another person to reply to yet.";
-    return `Suggest one concise, natural reply to this message from ${latest.user}. Return only the suggested reply.\n\n${latest.text}`;
+    if (!latest) return "Suggest three friendly, natural reply options to the latest message in this chat. There is no message from another person to reply to yet.";
+    return `Suggest exactly three concise, natural reply options to this message from ${latest.user}. Put one option on each line, numbered 1., 2., and 3. Return no introduction or commentary.\n\n${latest.text}`;
   }
   const latest = [...recent].reverse().find((message) => message.senderId !== "aura");
   const target = option || latest?.text || "";
-  return target
-    ? `Explain this chat message in clear, plain language. Mention ambiguity if needed.\n\n${target}`
-    : "Explain the latest message in this conversation in clear, plain language.";
+  if (target) return `Explain this chat message in clear, plain language. Mention ambiguity if needed.\n\n${target}`;
+  const plainRequest = request.replace(/^\/ai\s*/i, "");
+  return `${plainRequest}\n\nUse this recent conversation context to answer accurately. If the answer is not present in the chat, say so.\n${transcript(recent.slice(-40))}`;
 }
 
 io.on("connection", (socket) => {
@@ -1022,21 +1027,33 @@ io.on("connection", (socket) => {
 
   socket.on("aura request", async (prompt) => {
     const conversation = socket.data.activeConversation;
+    const request = prompt && typeof prompt === "object" ? prompt : {};
+    const requestId = typeof request.requestId === "string" && request.requestId.length <= 120 ? request.requestId : "";
+    let auraKind = typeof request.kind === "string" ? request.kind.slice(0, 30) : "";
+    const responseMode = request.mode === "composer" ? "composer" : "chat";
+    if (requestId) prompt = request.prompt;
     prompt = String(prompt || "").trim().slice(0, 1000);
+    if (!auraKind) auraKind = prompt.match(/^\/ai\s+(summarize|translate|reply|explain)\b/i)?.[1]?.toLowerCase() || "";
+    const sendError = (error) => requestId ? socket.emit("aura response error", { requestId, error }) : socket.emit("message error", error);
     if (!conversation || !canAccessConversation(conversation, socket.data.userId) || !prompt) return;
-    if (!openAiApiKey && !geminiApiKey) return socket.emit("message error", "Aura needs a GEMINI_API_KEY or OPENAI_API_KEY in the server .env file.");
+    if (!openAiApiKey && !geminiApiKey) return sendError("Aura needs a GEMINI_API_KEY or OPENAI_API_KEY in the server .env file.");
     const lastRequest = auraLastRequestByUser.get(socket.data.userId) || 0;
-    if (Date.now() - lastRequest < 4000) return socket.emit("message error", "Give Aura a moment before asking another question.");
+    if (Date.now() - lastRequest < 4000) return sendError("Give Aura a moment before asking another question.");
     auraLastRequestByUser.set(socket.data.userId, Date.now());
     try {
       const answer = await askAura(auraPromptForRequest(prompt, conversation, socket.data.userId));
+      if (responseMode === "composer") {
+        socket.emit("aura response", { requestId, text: answer });
+        return;
+      }
       const message = {
         id: crypto.randomUUID(), conversation, user: "Aura", senderId: "aura",
-        text: answer, time: Date.now(), avatar: "", assistant: true
+        text: answer, time: Date.now(), avatar: "", assistant: true, auraKind, requestId
       };
       await persistMessage(message);
       messages.push(message);
       io.to(conversation).emit("chat message", message);
+      if (requestId) socket.emit("aura response", { requestId, text: answer });
       if (isDirectConversationFor(conversation, socket.data.userId)) {
         const recipientId = conversation.split(":").slice(1).find((id) => id !== socket.data.userId);
         io.to(`user:${recipientId}`).emit("direct notification", { conversation, fromId: socket.data.userId, fromName: "Aura", id: message.id });
@@ -1050,7 +1067,7 @@ io.on("connection", (socket) => {
         : error.status === 401 ? "Aura's OpenAI API key was rejected. Check OPENAI_API_KEY in the server .env file."
         : error.status === 429 ? "Aura is being rate limited by OpenAI. Wait a moment and try again."
         : "Aura could not answer right now.";
-      socket.emit("message error", message);
+      sendError(message);
     }
   });
 

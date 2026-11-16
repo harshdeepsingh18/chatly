@@ -215,7 +215,7 @@ function requestAura(prompt, kind = "chat", mode = "chat") {
   const requestId = window.crypto?.randomUUID?.() || `aura-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   pendingAuraRequests.set(requestId, { kind, mode });
   auraPanelContent.innerHTML = `<div class="aura-loading" role="status"><span class="aura-spinner" aria-hidden="true"></span><strong>Aura is thinking…</strong><small>Your answer will appear here and in the chat.</small></div>`;
-  socket.emit("aura request", { prompt, requestId, mode });
+  socket.emit("aura request", { prompt, requestId, kind, mode });
 }
 function finishAuraRequest(requestId, answer, error = "") {
   const request = pendingAuraRequests.get(requestId);
@@ -338,8 +338,8 @@ $("message-form").addEventListener("submit", async (e) => {
 });
 
 // ----- 3. Showing messages -----
-function addMessage({ id, conversation, user, text, time, avatar, attachment, senderId, assistant, deleted, reactions, reactionNames }) {
-  const message = { id, conversation, user, text, time, avatar, attachment, senderId, assistant, deleted, reactions, reactionNames };
+function addMessage({ id, conversation, user, text, time, avatar, attachment, senderId, assistant, auraKind, requestId, deleted, reactions, reactionNames }) {
+  const message = { id, conversation, user, text, time, avatar, attachment, senderId, assistant, auraKind, requestId, deleted, reactions, reactionNames };
   const key = messageKey(message);
   if (showSavedOnly && !savedItems.some((item) => messageKey(item) === key)) return;
   const box = document.createElement("div");
@@ -365,7 +365,7 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
 
   bubble.append(name);
   if (text) bubble.append(body);
-  if (assistant && /\/ai\s+reply\b/i.test(text) === false) {
+  if (assistant && message.auraKind === "reply") {
     const suggestions = text.split(/\r?\n/).map((line) => line.trim().replace(/^(?:\d+[.)]\s*|[-*•]\s*)/, "").replace(/^['“”"]|['“”"]$/g, "")).filter(Boolean);
     if (suggestions.length >= 2 && suggestions.length <= 4) {
       const suggestionList = document.createElement("div");
@@ -1151,6 +1151,7 @@ socket.on("chat message", (message) => {
     incrementUnread(`New message in #${message.conversation}`);
     return;
   }
+  if (message.requestId) finishAuraRequest(message.requestId, message.text);
   allMessages.push(message);
   addMessage(message);
   updateDetailsPanel();
@@ -1175,6 +1176,8 @@ socket.on("message reactions", ({ id, conversation, reactions, reactionNames }) 
 });
 socket.on("system message", addSystemMessage);
 socket.on("message error", addSystemMessage);
+socket.on("aura response", ({ requestId, text }) => finishAuraRequest(requestId, text));
+socket.on("aura response error", ({ requestId, error }) => finishAuraRequest(requestId, "", error));
 
 document.querySelectorAll(".room-button").forEach((button) => {
   button.addEventListener("click", () => {
