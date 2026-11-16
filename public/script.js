@@ -80,10 +80,12 @@ let voiceChunks = [];
 const voiceMessageButton = $("voice-message-btn");
 const voiceMicIcon = '<svg class="voice-mic-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="12" rx="3"></rect><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3m-4 0h8"></path></svg>';
 let pendingMediaRequest = null;
+const micIconSvg = '<svg class="lucide-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3Z"></path><path d="M19 10a7 7 0 0 1-14 0"></path><path d="M12 19v3"></path></svg>';
+const cameraIconSvg = '<svg class="lucide-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"></path><path d="m16 9 5-3v12l-5-3"></path></svg>';
 function showMediaPermission(request, help = "Tap continue, then choose Allow in your browser’s permission prompt.") {
   pendingMediaRequest = request;
   const voiceMessage = request.kind === "voice-message";
-  $("media-permission-icon").textContent = voiceMessage ? "🎙" : request.video ? "📹" : "🎙";
+  $("media-permission-icon").innerHTML = voiceMessage ? micIconSvg : request.video ? cameraIconSvg : micIconSvg;
   $("media-permission-title").textContent = voiceMessage ? "Record a voice message" : request.video ? "Ready for a video call?" : "Ready for a voice call?";
   $("media-permission-description").textContent = voiceMessage
     ? "Allow microphone access to record a voice message in this chat."
@@ -2288,9 +2290,9 @@ function endCall(reason = "ended", notifyPeer = true) {
   $("local-video").srcObject = null;
   $("remote-video").srcObject = null;
   $("call-modal").classList.add("hidden");
-  $("mute-call-btn").textContent = "🎙 Mute";
+  $("mute-call-btn").innerHTML = micIconSvg + ' <span>Mute</span>';
   $("mute-call-btn").setAttribute("aria-label", "Mute microphone");
-  $("camera-call-btn").textContent = "▣ Camera off";
+  $("camera-call-btn").innerHTML = cameraIconSvg + ' <span>Camera off</span>';
   $("camera-call-btn").setAttribute("aria-label", "Turn camera off");
   activeCall = null;
 }
@@ -2305,7 +2307,7 @@ $("mute-call-btn").addEventListener("click", () => {
   if (!tracks.length) return;
   const muted = tracks[0].enabled;
   tracks.forEach((track) => { track.enabled = !muted; });
-  $("mute-call-btn").textContent = muted ? "🎙 Unmute" : "🎙 Mute";
+  $("mute-call-btn").innerHTML = muted ? micIconSvg + ' <span>Unmute</span>' : micIconSvg + ' <span>Mute</span>';
   $("mute-call-btn").setAttribute("aria-label", muted ? "Unmute microphone" : "Mute microphone");
 });
 $("camera-call-btn").addEventListener("click", () => {
@@ -2313,7 +2315,7 @@ $("camera-call-btn").addEventListener("click", () => {
   if (!tracks.length) return;
   const enabled = tracks[0].enabled;
   tracks.forEach((track) => { track.enabled = !enabled; });
-  $("camera-call-btn").textContent = enabled ? "▣ Camera on" : "▣ Camera off";
+  $("camera-call-btn").innerHTML = enabled ? cameraIconSvg + ' <span>Camera on</span>' : cameraIconSvg + ' <span>Camera off</span>';
   $("camera-call-btn").setAttribute("aria-label", enabled ? "Turn camera on" : "Turn camera off");
 });
 
