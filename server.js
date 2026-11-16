@@ -284,6 +284,41 @@ app.get("/api/search", async (req, res) => {
   }
   res.json({ people, messages: results, files, links });
 });
+app.get("/api/conversations", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in to load your conversations." });
+  const onlineById = new Map();
+  for (const [socketId, member] of users) {
+    const socket = io.sockets.sockets.get(socketId);
+    if (socket?.data.userId) onlineById.set(socket.data.userId, member);
+  }
+  const conversations = new Map();
+  const ensure = (id, details) => {
+    if (!conversations.has(id)) conversations.set(id, { id, ...details, lastMessage: null });
+    return conversations.get(id);
+  };
+  chatRooms.forEach((room) => ensure(room, { type: "room", name: room, avatar: "" }));
+  Object.values(groups).filter((group) => group.memberIds.includes(user.id)).forEach((group) => ensure(`group:${group.id}`, { type: "group", name: group.name, avatar: "" }));
+  for (const message of messages) {
+    if (message.deleted || !canAccessConversation(message.conversation, user.id)) continue;
+    let details;
+    if (message.conversation.startsWith("dm:")) {
+      const otherId = message.conversation.slice(3).split(":").find((id) => id !== user.id);
+      if (!otherId) continue;
+      const person = onlineById.get(otherId);
+      details = { type: "direct", name: usernameByUser.get(otherId) || "Chatly member", avatar: person?.avatar || avatarUrlFor(avatarByUser.get(otherId)), userId: otherId };
+    } else if (message.conversation.startsWith("group:")) {
+      const group = groups[message.conversation.slice(6)];
+      if (!group) continue;
+      details = { type: "group", name: group.name, avatar: "" };
+    } else details = { type: "room", name: message.conversation, avatar: "" };
+    const item = ensure(message.conversation, details);
+    if (!item.lastMessage || message.time > item.lastMessage.time) {
+      item.lastMessage = { text: message.text || message.attachment?.name || "Shared an attachment", time: message.time, sender: message.user };
+    }
+  }
+  res.json([...conversations.values()].sort((a, b) => (b.lastMessage?.time || 0) - (a.lastMessage?.time || 0) || a.name.localeCompare(b.name)));
+});
 app.post("/api/groups", async (req, res) => {
   const user = await getSupabaseUser(req);
   if (!user) return res.status(401).json({ error: "Sign in first." });

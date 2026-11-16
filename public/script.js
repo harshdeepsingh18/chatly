@@ -18,6 +18,11 @@ let pinnedItems = [];
 let onlineUserCache = [];
 let myGroups = [];
 let contactsCache = [];
+let conversationCache = [];
+let activeInboxFilter = "all";
+const unreadByConversation = new Map();
+let pinnedConversationIds = [];
+try { pinnedConversationIds = JSON.parse(localStorage.getItem("chatly-pinned-conversations") || "[]").filter((id) => typeof id === "string"); } catch {}
 let globalSearchTimer = null;
 let globalSearchSequence = 0;
 let focusUntil = 0;
@@ -366,6 +371,7 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
   name.append(usernameLabel);
 
   const body = document.createElement("span");
+  body.className = "message-text";
   body.textContent = text;            // textContent keeps user input safe from HTML injection
 
   const stamp = document.createElement("span");
@@ -511,6 +517,38 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
       reactionPicker.append(reaction);
     });
     menu.append(reactionPicker);
+  }
+  const replyButton = document.createElement("button");
+  replyButton.type = "button";
+  replyButton.textContent = "Reply";
+  replyButton.addEventListener("click", () => {
+    input.value = `${user}: ${text}`;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    closeMessageMenus();
+  });
+  menu.append(replyButton);
+  if (text) {
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.textContent = "Copy text";
+    copyButton.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(text); addSystemMessage("Message copied."); }
+      catch { addSystemMessage("Clipboard access is unavailable in this browser."); }
+      closeMessageMenus();
+    });
+    menu.append(copyButton);
+    if (assistant !== true) {
+      const explainButton = document.createElement("button");
+      explainButton.type = "button";
+      explainButton.textContent = "Explain with Aura";
+      explainButton.addEventListener("click", () => { socket.emit("aura request", `/ai explain ${text}`); closeMessageMenus(); });
+      const translateButton = document.createElement("button");
+      translateButton.type = "button";
+      translateButton.textContent = "Translate with Aura";
+      translateButton.addEventListener("click", () => { socket.emit("aura request", `/ai Translate this message into English. Return only the translation.\n\n${text}`); closeMessageMenus(); });
+      menu.append(explainButton, translateButton);
+    }
   }
   const pin = document.createElement("button");
   pin.type = "button";
@@ -745,6 +783,8 @@ socket.on("direct opened", ({ user }) => {
     chessLegalSquares = [];
   }
   currentDirectUser = user;
+  clearConversationUnread(currentConversation);
+  loadConversations();
   $("conversation-name").textContent = `Direct message with ${user.name}`;
   $("call-controls").classList.remove("hidden");
   $("search-input").value = "";
@@ -1179,15 +1219,20 @@ function closeGamesSection() {
 socket.on("direct notification", ({ conversation, fromId, fromName }) => {
   if (fromId === currentUserId) return;
   if (conversation === currentConversation) return;
+  markConversationUnread(conversation);
+  loadConversations();
   incrementUnread(`${fromName} sent you a message`);
 });
 socket.on("groups updated", async () => { await loadGroups(); updateDetailsPanel(); });
 socket.on("chat message", (message) => {
+  updateConversationPreview(message);
   if (message.conversation !== currentConversation) {
     if (message.conversation?.startsWith("dm:") || message.senderId === currentUserId) return;
+    markConversationUnread(message.conversation);
     incrementUnread(`New message in #${message.conversation}`);
     return;
   }
+  clearConversationUnread(message.conversation);
   if (message.requestId) finishAuraRequest(message.requestId, message.text);
   allMessages.push(message);
   addMessage(message);
@@ -1223,6 +1268,7 @@ document.querySelectorAll(".room-button").forEach((button) => {
     currentDirectUser = null;
     $("call-controls").classList.add("hidden");
     currentConversation = button.dataset.room;
+    clearConversationUnread(currentConversation);
     updateDetailsPanel();
     showSavedOnly = false;
     $("saved-btn").textContent = "☆ Saved";
@@ -1268,6 +1314,7 @@ async function loadGroups() {
       }
       nav.append(item);
     });
+    await loadConversations();
   } catch (error) { addSystemMessage(error.message); }
 }
 function openGroup(group) {
@@ -1276,6 +1323,7 @@ function openGroup(group) {
   currentDirectUser = null;
   $("call-controls").classList.add("hidden");
   currentConversation = `group:${group.id}`;
+  clearConversationUnread(currentConversation);
   showSavedOnly = false;
   $("saved-btn").textContent = "☆ Saved";
   $("saved-btn").setAttribute("aria-pressed", "false");
@@ -1545,6 +1593,8 @@ socket.on("avatar updated", (update) => {
   allMessages = allMessages.map((message) => message.senderId === update.userId ? { ...message, avatar: update.avatar || message.googleAvatar || message.avatar } : message);
   savedItems = savedItems.map((message) => message.senderId === update.userId ? { ...message, avatar: update.avatar || message.googleAvatar || message.avatar } : message);
   onlineUserCache = onlineUserCache.map((member) => member.id === update.userId ? { ...member, avatar: update.avatar || member.avatar } : member);
+  contactsCache = contactsCache.map((member) => member.id === update.userId ? { ...member, avatar: update.avatar || member.avatar } : member);
+  conversationCache = conversationCache.map((item) => item.userId === update.userId ? { ...item, avatar: update.avatar || item.avatar } : item);
   if (currentDirectUser?.id === update.userId) currentDirectUser.avatar = update.avatar || currentDirectUser.avatar;
   myGroups = myGroups.map((group) => ({ ...group, members: (group.members || []).map((member) => member.id === update.userId ? { ...member, avatar: update.avatar || member.avatar } : member) }));
   if (update.userId === currentUserId && currentProfile) {
@@ -1553,11 +1603,17 @@ socket.on("avatar updated", (update) => {
     updateProfilePanel();
   }
   renderMessages();
+  renderConversationList();
+  if (!$("contacts-section").classList.contains("hidden")) renderContacts();
   updateDetailsPanel();
 });
-$("profile-btn").addEventListener("click", () => { updateProfilePanel(); $("settings-status").textContent = ""; $("settings-modal").classList.remove("hidden"); });
-$("settings-close").addEventListener("click", () => $("settings-modal").classList.add("hidden"));
-$("settings-modal").addEventListener("click", (event) => { if (event.target === $("settings-modal")) $("settings-modal").classList.add("hidden"); });
+$("profile-btn").addEventListener("click", () => { markAppPageActive("settings"); updateProfilePanel(); $("settings-status").textContent = ""; $("settings-modal").classList.remove("hidden"); });
+function closeSettings() {
+  $("settings-modal").classList.add("hidden");
+  markAppPageActive("messages");
+}
+$("settings-close").addEventListener("click", closeSettings);
+$("settings-modal").addEventListener("click", (event) => { if (event.target === $("settings-modal")) closeSettings(); });
 $("settings-username-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const save = $("settings-username-save");
@@ -1613,6 +1669,10 @@ socket.on("typing", ({ user, isTyping }) => {
 // Server sends an array of names: ["Rahul", "Aman"]
 socket.on("user list", (users) => {
   onlineUserCache = users.filter((user) => user.id !== currentUserId);
+  conversationCache = conversationCache.map((item) => {
+    const online = onlineUserCache.find((member) => member.id === item.userId);
+    return online ? { ...item, avatar: online.avatar || item.avatar } : item;
+  });
   $("online-count").textContent = onlineUserCache.length;
   const list = $("user-list");
   list.innerHTML = "";
@@ -1636,6 +1696,8 @@ socket.on("user list", (users) => {
     list.appendChild(li);
   });
   updateDetailsPanel();
+  renderConversationList();
+  if (!$("contacts-section").classList.contains("hidden")) renderContacts();
   if (!$("games-section").classList.contains("hidden") && !currentDirectUser) renderGamesView();
 });
 
@@ -1737,6 +1799,10 @@ document.querySelectorAll("[data-page]").forEach((button) => button.addEventList
 $("contacts-filter").addEventListener("input", renderContacts);
 $("focus-toggle").addEventListener("click", () => setFocusMode(!isFocusModeActive()));
 $("settings-focus-toggle").addEventListener("click", () => setFocusMode(!isFocusModeActive()));
+$("settings-aura-open").addEventListener("click", () => {
+  $("settings-modal").classList.add("hidden");
+  setAppPage("aura");
+});
 
 function openConversationResult(conversation) {
   setAppPage("messages");
@@ -1751,6 +1817,125 @@ function openConversationResult(conversation) {
     if (peerId) socket.emit("open direct", peerId);
   }
 }
+function sidebarTime(time) {
+  if (!time) return "";
+  const date = new Date(time);
+  const today = new Date();
+  return date.toDateString() === today.toDateString()
+    ? date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    : date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+function addConversationSection(root, title, items) {
+  if (!items.length) return;
+  const section = document.createElement("section");
+  section.className = "conversation-list-section";
+  const heading = document.createElement("h3");
+  heading.textContent = title;
+  section.append(heading);
+  items.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "conversation-item" + (item.id === currentConversation ? " active" : "");
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "conversation-open";
+    open.setAttribute("aria-label", `Open ${item.name} conversation`);
+    open.append(createAvatar(item.name, item.avatar, "avatar conversation-list-avatar"));
+    const details = document.createElement("span");
+    details.className = "conversation-list-copy";
+    const top = document.createElement("span");
+    top.className = "conversation-list-top";
+    const name = document.createElement("strong");
+    name.textContent = item.name;
+    const time = document.createElement("time");
+    time.textContent = sidebarTime(item.lastMessage?.time);
+    const preview = document.createElement("small");
+    preview.textContent = item.lastMessage?.text || (item.type === "room" ? "Start a conversation" : item.type === "group" ? "Group conversation" : "Open direct message");
+    top.append(name, time);
+    details.append(top, preview);
+    open.append(details);
+    open.addEventListener("click", () => openConversationResult(item.id));
+    const count = unreadByConversation.get(item.id) || 0;
+    if (count) {
+      const badge = document.createElement("span");
+      badge.className = "conversation-unread";
+      badge.textContent = count > 99 ? "99+" : String(count);
+      badge.setAttribute("aria-label", `${count} unread`);
+      open.append(badge);
+    }
+    const pin = document.createElement("button");
+    pin.type = "button";
+    const isPinned = pinnedConversationIds.includes(item.id);
+    pin.className = "conversation-pin" + (isPinned ? " pinned" : "");
+    pin.textContent = isPinned ? "★" : "☆";
+    pin.setAttribute("aria-label", isPinned ? `Unpin ${item.name}` : `Pin ${item.name}`);
+    pin.setAttribute("aria-pressed", String(isPinned));
+    pin.addEventListener("click", (event) => {
+      event.stopPropagation();
+      pinnedConversationIds = isPinned ? pinnedConversationIds.filter((id) => id !== item.id) : [...pinnedConversationIds, item.id];
+      try { localStorage.setItem("chatly-pinned-conversations", JSON.stringify(pinnedConversationIds)); } catch {}
+      renderConversationList();
+    });
+    row.append(open, pin);
+    section.append(row);
+  });
+  root.append(section);
+}
+function renderConversationList() {
+  const root = $("conversation-list");
+  if (!root) return;
+  root.replaceChildren();
+  const filtered = conversationCache.filter((item) => activeInboxFilter === "all"
+    || (activeInboxFilter === "unread" && (unreadByConversation.get(item.id) || 0) > 0)
+    || (activeInboxFilter === "groups" && item.type === "group"));
+  const pinned = filtered.filter((item) => pinnedConversationIds.includes(item.id));
+  const others = filtered.filter((item) => !pinnedConversationIds.includes(item.id));
+  addConversationSection(root, "Pinned", pinned);
+  addConversationSection(root, activeInboxFilter === "groups" ? "Groups" : "All", others);
+  if (!root.children.length) {
+    const empty = document.createElement("p");
+    empty.className = "conversation-empty";
+    empty.textContent = activeInboxFilter === "unread" ? "You’re all caught up." : activeInboxFilter === "groups" ? "No groups yet." : "Your conversations will appear here.";
+    root.append(empty);
+  }
+}
+async function loadConversations() {
+  if (!authToken) return;
+  try {
+    const response = await fetch("/api/conversations", { headers: { Authorization: `Bearer ${authToken}` } });
+    const items = await response.json();
+    if (!response.ok) throw new Error(items.error || "Could not load conversations.");
+    conversationCache = items;
+    renderConversationList();
+  } catch (error) {
+    $("conversation-list").textContent = error.message;
+  }
+}
+function updateConversationPreview(message) {
+  const listedConversation = conversationCache.find((item) => item.id === message.conversation);
+  if (!listedConversation) return loadConversations();
+  if (!listedConversation.lastMessage || message.time >= listedConversation.lastMessage.time) {
+    listedConversation.lastMessage = { text: message.text || message.attachment?.name || "Shared an attachment", time: message.time, sender: message.user };
+  }
+  conversationCache.sort((a, b) => (b.lastMessage?.time || 0) - (a.lastMessage?.time || 0) || a.name.localeCompare(b.name));
+  renderConversationList();
+}
+function markConversationUnread(conversation) {
+  unreadByConversation.set(conversation, (unreadByConversation.get(conversation) || 0) + 1);
+  renderConversationList();
+}
+function clearConversationUnread(conversation) {
+  unreadByConversation.delete(conversation);
+  renderConversationList();
+}
+document.querySelectorAll("[data-inbox-filter]").forEach((button) => button.addEventListener("click", () => {
+  activeInboxFilter = button.dataset.inboxFilter;
+  document.querySelectorAll("[data-inbox-filter]").forEach((tab) => {
+    const active = tab === button;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", String(active));
+  });
+  renderConversationList();
+}));
 function addSearchResultGroup(root, title, items, labelFor, activate) {
   if (!items.length) return;
   const section = document.createElement("section");
@@ -1792,6 +1977,10 @@ function renderGlobalSearch(data) {
   addSearchResultGroup(root, "LINKS", data.links, (link) => ({ primary: link.url, secondary: `${link.user} · ${new Date(link.time).toLocaleDateString()}` }), (link) => {
     $("global-search-modal").classList.add("hidden");
     openConversationResult(link.conversation);
+    try {
+      const url = new URL(link.url);
+      if (url.protocol === "https:" || url.protocol === "http:") window.open(url.href, "_blank", "noopener,noreferrer");
+    } catch {}
   });
   if (!root.children.length) {
     const empty = document.createElement("p");
@@ -1903,15 +2092,15 @@ function updateDetailsPanel() {
 }
 
 $("details-toggle").addEventListener("click", () => {
-  if (window.innerWidth > 1000) $("chat").classList.toggle("details-closed");
+  if (window.innerWidth > 900) $("chat").classList.toggle("details-open");
   else $("details-panel").classList.add("open");
 });
 $("conversation-details-btn").addEventListener("click", () => {
-  if (window.innerWidth > 1000) $("chat").classList.toggle("details-closed");
+  if (window.innerWidth > 900) $("chat").classList.toggle("details-open");
   else $("details-panel").classList.add("open");
 });
 $("details-close").addEventListener("click", () => {
-  if (window.innerWidth > 1000) $("chat").classList.add("details-closed");
+  if (window.innerWidth > 900) $("chat").classList.remove("details-open");
   else $("details-panel").classList.remove("open");
 });
 $("conversation-search-btn").addEventListener("click", () => $("search-input").focus());
@@ -1931,15 +2120,26 @@ $("emoji-btn").addEventListener("click", () => emojiPanel.classList.toggle("hidd
 
 // ----- 7. Light / dark mode (remembered in the browser) -----
 function setTheme(theme) {
-  document.documentElement.dataset.theme = theme;
-  $("theme-btn").textContent = theme === "dark" ? "☀️" : "🌙";
+  const resolved = theme === "system" ? (window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light") : theme;
+  document.documentElement.dataset.theme = resolved;
+  document.documentElement.dataset.themePreference = theme;
+  $("theme-btn").textContent = resolved === "dark" ? "☀️" : "☾";
+  document.querySelectorAll("[data-theme-choice]").forEach((button) => {
+    const active = button.dataset.themeChoice === theme;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
   try { localStorage.setItem("chatly-theme-v2", theme); } catch (e) {}
 }
-let saved = "dark";
+let saved = "light";
 try { saved = localStorage.getItem("chatly-theme-v2") || saved; } catch (e) {}
 setTheme(saved);
 $("theme-btn").addEventListener("click", () => {
   setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+});
+document.querySelectorAll("[data-theme-choice]").forEach((button) => button.addEventListener("click", () => setTheme(button.dataset.themeChoice)));
+window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => {
+  if (document.documentElement.dataset.themePreference === "system") setTheme("system");
 });
 
 if ("serviceWorker" in navigator) {

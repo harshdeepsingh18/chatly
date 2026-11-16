@@ -1,6 +1,6 @@
 # Chatly
 
-Chatly is a real-time chat app built with Node.js, Express, and Socket.IO. It uses Supabase Auth for Google sign-in and supports private chats, groups, file sharing, voice/video calls, games, and an optional AI study helper.
+Chatly is a real-time chat app built with Node.js, Express, and Socket.IO. It uses Supabase Auth for Google sign-in and pairs private chats, groups, file sharing, voice/video calls, and games with a warm, minimal inbox.
 
 ## Live site
 
@@ -12,10 +12,12 @@ Chatly is a real-time chat app built with Node.js, Express, and Socket.IO. It us
 - Public chat rooms, private conversations, and member groups
 - Live messages, presence, typing status, and unread counts
 - Saved and pinned messages, search, and file sharing
+- Conversation list with pinned, unread, and group filters; alphabetized contacts; and global search across accessible messages, people, files, and links
+- Local Focus mode to pause notification sounds and alerts, with remembered appearance preferences
 - Voice and video calls using WebRTC
 - Multiplayer Tic Tac Toe, Snakes and Ladders, Ludo, Chess, and Snake Arena
 - Optional Aura assistant using Gemini or OpenAI, with composer actions for chat summaries, translations, reply suggestions, message explanations, text improvements, chat search, and freeform questions. Slash commands (`/ai summarize`, `/ai translate [language]`, `/ai reply`, `/ai explain`, `/ai <question>`) and `@aura` questions remain supported.
-- Responsive layout and an installable app shell
+- Responsive desktop and mobile navigation, light/dark/system appearance, and an installable app shell
 
 ## Run locally
 

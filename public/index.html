@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#3b3fd8">
+  <meta name="theme-color" content="#f7f4ed">
   <meta name="description" content="Chatly is a friendly place to catch up with your people in real time.">
   <title>Chatly</title>
   <link rel="manifest" href="/manifest.webmanifest">
@@ -18,8 +18,7 @@
     <div class="login-shell">
       <div class="login-intro">
         <div class="brand-lockup">
-          <img src="/logo.svg" alt="" class="brand-logo">
-          <div><h1>Chatly</h1><p>Your people, all in one place.</p></div>
+          <div><h1 class="wordmark">chatly</h1><p>Your people, all in one place.</p></div>
         </div>
         <div class="login-kicker"><span></span> CHAT, PLAY, AND CATCH UP</div>
         <h2>Make room for<br><em>good conversations.</em></h2>
@@ -67,12 +66,18 @@
     <aside id="sidebar">
       <div class="sidebar-brand"><strong>chatly</strong><span>MESSAGING, WITH ROOM TO BREATHE</span></div>
       <nav class="primary-nav" aria-label="Main navigation">
-        <button type="button" class="primary-nav-button active" data-page="messages"><span aria-hidden="true">◷</span>Messages</button>
-        <button type="button" class="primary-nav-button" data-page="contacts"><span aria-hidden="true">◉</span>Contacts</button>
-        <button type="button" class="primary-nav-button" data-page="aura"><span aria-hidden="true">✳</span>Aura</button>
-        <button type="button" class="primary-nav-button" data-page="settings"><span aria-hidden="true">⌘</span>Settings</button>
+        <button type="button" class="primary-nav-button active" data-page="messages"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v12H8l-4 3v-15Z"/><path d="M8 10h8M8 14h5"/></svg>Messages</button>
+        <button type="button" class="primary-nav-button" data-page="contacts"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3.5 19v-1.5A4.5 4.5 0 0 1 8 13h2a4.5 4.5 0 0 1 4.5 4.5V19M16 5.5a3 3 0 0 1 0 5.8M17 13a4.5 4.5 0 0 1 3.5 4.5V19"/></svg>Contacts</button>
+        <button type="button" class="primary-nav-button" data-page="aura"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 1.7 6.3L20 11l-6.3 1.7L12 19l-1.7-6.3L4 11l6.3-1.7L12 3Z"/><path d="m19 16 .7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7L19 16Z"/></svg>Aura</button>
+        <button type="button" class="primary-nav-button" data-page="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.7a8 8 0 0 1-1.8 1l-.3 1.8h-2.8l-.3-1.8a8 8 0 0 1-1.8-1l-1.7.7-1.4-2.4L7.1 15a8 8 0 0 1 0-2l-1.4-1.1 1.4-2.4 1.7.7a8 8 0 0 1 1.8-1l.3-1.8h2.8l.3 1.8a8 8 0 0 1 1.8 1l1.7-.7 1.4 2.4-1.4 1.1a8 8 0 0 1-.1 2Z"/></svg>Settings</button>
       </nav>
-      <div class="sidebar-section-heading"><h2>INBOX</h2><button id="sidebar-search-btn" type="button" aria-label="Search Chatly" title="Search Chatly">⌕</button></div>
+      <div class="sidebar-section-heading"><h2>Chat</h2><div><button id="sidebar-search-btn" type="button" aria-label="Search Chatly" title="Search Chatly"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.6"/><path d="m16 16 4 4"/></svg></button><button id="create-group-btn" type="button" aria-label="Create a group" title="New group"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div></div>
+      <div class="conversation-filters" role="tablist" aria-label="Filter conversations">
+        <button type="button" class="active" data-inbox-filter="all" role="tab" aria-selected="true">All</button>
+        <button type="button" data-inbox-filter="unread" role="tab" aria-selected="false">Unread</button>
+        <button type="button" data-inbox-filter="groups" role="tab" aria-selected="false">Groups</button>
+      </div>
+      <div id="conversation-list" class="conversation-list" aria-label="Conversations"></div>
       <nav id="room-list" aria-label="Chat rooms">
         <button type="button" class="room-button active" data-room="general"><span class="room-mark">○</span>General</button>
         <button type="button" class="room-button" data-room="doubts"><span class="room-mark">○</span>Doubts</button>
@@ -83,7 +88,7 @@
           <span aria-hidden="true">🎮</span><span>Games</span><small>5</small>
         </button>
       </nav>
-      <div class="group-heading"><h2>GROUPS</h2><button id="create-group-btn" type="button" aria-label="Create a group" title="Create a group">+</button></div>
+      <div class="group-heading"><h2>GROUPS</h2></div>
       <nav id="group-list" class="room-list" aria-label="Your group chats"></nav>
       <h2 class="online-heading">PEOPLE <span id="online-count">0</span></h2>
       <ul id="user-list"></ul>
@@ -99,7 +104,7 @@
           <strong class="wordmark">chatly</strong>
           <small id="me"></small>
         </div>
-        <button id="global-search-open" type="button" aria-label="Search messages, people, files and links" title="Search Chatly">⌕</button>
+        <button id="global-search-open" type="button" aria-label="Search messages, people, files and links" title="Search Chatly"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.6"/><path d="m16 16 4 4"/></svg></button>
         <button id="saved-btn" type="button" aria-pressed="false">☆ Saved</button>
         <button id="theme-btn" aria-label="Switch light or dark mode">🌙</button>
         <button id="profile-btn" type="button" aria-label="Profile and settings" title="Profile and settings">Profile</button>
@@ -154,7 +159,7 @@
           <button type="button" id="emoji-btn" aria-label="Add emoji">😊</button>
           <button type="button" id="aura-shortcut-btn" title="Open Aura AI tools" aria-label="Open Aura AI tools">
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m12 2 1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8L12 2Zm7 12 .9 3.1L23 18l-3.1.9L19 22l-.9-3.1L15 18l3.1-.9L19 14Z"></path></svg>
-            <span>✨ Aura</span>
+            <span>Aura</span>
           </button>
           <button type="button" id="file-btn" aria-label="Attach a file">+</button>
           <input id="file-input" type="file" class="hidden" accept="image/*,.pdf,.txt,.docx">
@@ -184,10 +189,10 @@
         <div id="tic-tac-toe-content" class="games-content"></div>
       </section>
       <nav id="mobile-nav" class="mobile-nav" aria-label="Main navigation">
-        <button type="button" class="active" data-page="messages"><span aria-hidden="true">◷</span><small>Messages</small></button>
-        <button type="button" data-page="contacts"><span aria-hidden="true">◉</span><small>Contacts</small></button>
-        <button type="button" data-page="aura"><span aria-hidden="true">✳</span><small>Aura</small></button>
-        <button type="button" data-page="settings"><span aria-hidden="true">⌘</span><small>Settings</small></button>
+        <button type="button" class="active" data-page="messages"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v12H8l-4 3v-15Z"/><path d="M8 10h8M8 14h5"/></svg><small>Messages</small></button>
+        <button type="button" data-page="contacts"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3.5 19v-1.5A4.5 4.5 0 0 1 8 13h2a4.5 4.5 0 0 1 4.5 4.5V19M16 5.5a3 3 0 0 1 0 5.8M17 13a4.5 4.5 0 0 1 3.5 4.5V19"/></svg><small>Contacts</small></button>
+        <button type="button" data-page="aura"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 1.7 6.3L20 11l-6.3 1.7L12 19l-1.7-6.3L4 11l6.3-1.7L12 3Z"/><path d="m19 16 .7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7L19 16Z"/></svg><small>Aura</small></button>
+        <button type="button" data-page="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.7a8 8 0 0 1-1.8 1l-.3 1.8h-2.8l-.3-1.8a8 8 0 0 1-1.8-1l-1.7.7-1.4-2.4L7.1 15a8 8 0 0 1 0-2l-1.4-1.1 1.4-2.4 1.7.7a8 8 0 0 1 1.8-1l.3-1.8h2.8l.3 1.8a8 8 0 0 1 1.8 1l1.7-.7 1.4 2.4-1.4 1.1a8 8 0 0 1-.1 2Z"/></svg><small>Settings</small></button>
       </nav>
     </main>
     <aside id="details-panel" aria-label="Conversation details">
@@ -295,6 +300,10 @@
       <section class="settings-preferences">
         <p class="settings-section-label">NOTIFICATIONS</p>
         <div class="focus-settings-row"><div><strong>Focus mode</strong><small>Pause sounds and alerts while you concentrate.</small></div><button id="settings-focus-toggle" type="button">Turn on</button></div>
+      </section>
+      <section class="settings-preferences">
+        <p class="settings-section-label">AI</p>
+        <div class="focus-settings-row"><div><strong>Aura</strong><small>Summarize, translate, and ask about your chats.</small></div><button id="settings-aura-open" type="button">Open Aura</button></div>
       </section>
       <form id="settings-username-form">
         <label for="settings-username">Chat username</label>
