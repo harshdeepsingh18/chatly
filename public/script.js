@@ -95,6 +95,9 @@ function iconElement(name, className = "lucide-icon") {
   template.innerHTML = iconSvg(name, className);
   return template.content.firstElementChild;
 }
+function setConversationHeading(kind, label) {
+  $("conversation-name").replaceChildren(iconElement(kind), document.createTextNode(label));
+}
 const loginScreen = $("login");
 const usernameScreen = $("username-screen");
 const chatScreen = $("chat");
@@ -221,7 +224,7 @@ voiceMessageButton.addEventListener("click", () => {
   if (voiceRecorder?.state === "recording") {
     voiceRecorder.stop();
     voiceMessageButton.disabled = true;
-    voiceMessageButton.textContent = "…";
+    voiceMessageButton.innerHTML = '<span class="voice-recording-spinner" aria-hidden="true"></span>';
     voiceMessageButton.title = "Finishing recording";
     return;
   }
@@ -853,7 +856,7 @@ socket.on("direct opened", ({ user }) => {
   currentDirectUser = user;
   clearConversationUnread(currentConversation);
   loadConversations();
-  $("conversation-name").textContent = `Direct message with ${user.name}`;
+  setConversationHeading("user", `Direct message with ${user.name}`);
   $("call-controls").classList.remove("hidden");
   $("search-input").value = "";
   document.querySelectorAll(".room-button").forEach((button) => button.classList.remove("active"));
@@ -1340,7 +1343,7 @@ document.querySelectorAll(".room-button").forEach((button) => {
     updateDetailsPanel();
     showSavedOnly = false;
     $("saved-btn").replaceChildren(iconElement("star"), document.createTextNode("Saved"));
-    $("conversation-name").textContent = `# ${currentConversation}`;
+    setConversationHeading("hash", currentConversation);
     document.querySelectorAll(".room-button").forEach((roomButton) => roomButton.classList.toggle("active", roomButton === button));
     document.querySelectorAll(".group-button").forEach((groupButton) => groupButton.classList.remove("active"));
     $("search-input").value = "";
@@ -1395,7 +1398,7 @@ function openGroup(group) {
   showSavedOnly = false;
   $("saved-btn").replaceChildren(iconElement("star"), document.createTextNode("Saved"));
   $("saved-btn").setAttribute("aria-pressed", "false");
-  $("conversation-name").replaceChildren(iconElement("users"), document.createTextNode(group.name));
+  setConversationHeading("users", group.name);
   document.querySelectorAll(".room-button").forEach((button) => button.classList.remove("active"));
   document.querySelectorAll(".group-button").forEach((button) => button.classList.toggle("active", button.dataset.groupId === group.id));
   $("search-input").value = "";
@@ -2098,11 +2101,11 @@ document.addEventListener("keydown", (event) => {
 function updateDetailsPanel() {
   const person = currentDirectUser;
   const group = currentConversation.startsWith("group:") ? myGroups.find((item) => `group:${item.id}` === currentConversation) : null;
-  const name = person?.name || group?.name || `# ${currentConversation}`;
-  const conversationAvatar = createAvatar(name, person?.avatar || "", "avatar conversation-avatar");
+  const name = person?.name || group?.name || currentConversation;
+  const conversationAvatar = person || group ? createAvatar(name, person?.avatar || "", "avatar conversation-avatar") : iconElement("hash", "lucide-icon conversation-room-avatar");
   conversationAvatar.id = "conversation-avatar";
   $("conversation-avatar").replaceWith(conversationAvatar);
-  $("conversation-name").textContent = name;
+  setConversationHeading(person ? "user" : group ? "users" : "hash", name);
   const onlineGroupMembers = group ? group.memberIds.filter((id) => id === currentUserId || onlineUserCache.some((user) => user.id === id)).length : 0;
   $("conversation-subtitle").textContent = person
     ? (onlineUserCache.some((user) => user.id === person.id) ? "Direct message · Online" : "Direct message")

@@ -114,8 +114,8 @@
       <div id="conversation-view">
         <div id="conversation-title">
           <div class="conversation-identity">
-            <span id="conversation-avatar" class="avatar conversation-avatar">C</span>
-            <div><strong id="conversation-name"># general</strong><small id="conversation-subtitle">Community room</small></div>
+            <svg id="conversation-avatar" class="lucide-icon conversation-room-avatar" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16M4 15h16M10 3 8 21m8-18-2 18"/></svg>
+            <div><strong id="conversation-name"><svg class="lucide-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16M4 15h16M10 3 8 21m8-18-2 18"/></svg>general</strong><small id="conversation-subtitle">Community room</small></div>
           </div>
           <div id="call-controls" class="hidden" aria-label="Call options">
             <button id="tic-tac-toe-btn" type="button" aria-label="Open games" title="Open games">
@@ -156,16 +156,16 @@
               </div>
             </div>
           </section>
-          <button type="button" id="emoji-btn" aria-label="Add emoji"><svg class="lucide-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><path d="M9 9h.01"></path><path d="M15 9h.01"></path></svg></button>
+          <button type="button" id="file-btn" aria-label="Attach a file"><svg class="lucide-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21.44 11.05 12.25 20.24a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l7.72-7.73"></path></svg></button>
           <button type="button" id="aura-shortcut-btn" title="Open Aura AI tools" aria-label="Open Aura AI tools">
             <svg class="lucide-icon aura-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 14 9.8l6.5 2.2-6.5 2.2-2 6.3-2-6.3L3.5 12l6.5-2.2 2-6.3Z"/><path d="m19 3 .8 2.2L22 6l-2.2.8L19 9l-.8-2.2L16 6l2.2-.8L19 3Z"/></svg>
             <span>Aura</span>
           </button>
-          <button type="button" id="file-btn" aria-label="Attach a file"><svg class="lucide-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21.44 11.05 12.25 20.24a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l7.72-7.73"></path></svg></button>
           <input id="file-input" type="file" class="hidden" accept="image/*,.pdf,.txt,.docx">
           <button type="button" id="voice-message-btn" aria-label="Record voice message" title="Record voice message">
             <svg class="voice-mic-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2m-7 9v3m-4 0h8"/></svg>
           </button>
+          <button type="button" id="emoji-btn" aria-label="Add emoji"><svg class="lucide-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><path d="M9 9h.01"></path><path d="M15 9h.01"></path></svg></button>
           <input id="message-input" type="text" placeholder="Message, /ai summarize, or @aura ask" autocomplete="off" aria-label="Message or ask Aura; try /ai summarize, translate, reply, or explain">
           <button type="submit" id="send-btn" aria-label="Send"><svg class="lucide-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button>
         </form>
