@@ -34,6 +34,7 @@ const pinsFile = path.join(dataDirectory, "pinned-messages.json");
 const reactionsFile = path.join(dataDirectory, "message-reactions.json");
 const uploadsFile = path.join(dataDirectory, "uploads.json");
 const groupsFile = path.join(dataDirectory, "groups.json");
+const directConversationsFile = path.join(dataDirectory, "direct-conversations.json");
 const ticTacToeFile = path.join(dataDirectory, "tic-tac-toe.json");
 const partyGamesFile = path.join(dataDirectory, "party-games.json");
 const uploadDirectory = path.join(dataDirectory, "uploads");
@@ -45,6 +46,9 @@ const googleVerifier = new OAuth2Client(googleClientId || undefined);
 const authSessions = new Map();
 let authUsers = [];
 let authUsersQueue = Promise.resolve();
+let profileQueue = Promise.resolve();
+let directConversations = {};
+let directConversationsQueue = Promise.resolve();
 const SESSION_COOKIE = "chatly_session";
 const supabaseUrl = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "";
@@ -95,6 +99,24 @@ const avatarSkins = ["#f6d1b1", "#e8b995", "#d69a70", "#bd805c", "#9b6249", "#f0
 const avatarHairs = ["#241d22", "#3b2a24", "#6d422d", "#ad6236", "#d0a34f", "#41454c", "#8a5b72", "#252e3c", "#4b4734", "#b8b3ac"];
 const avatarClothes = ["#6556a5", "#337f83", "#b7535d", "#e18449", "#4e719e", "#57916d", "#353b49", "#d16e9b", "#ba9146", "#609caa"];
 const avatarUrlFor = (avatarId) => avatarId ? `/api/avatars/${avatarId}.svg` : "";
+const profilePhotoUrlFor = (photoId) => photoId ? `/api/profile-photos/${photoId}` : "";
+function authRecordFor(userId) { return authUsers.find((item) => item.id === userId) || null; }
+function displayNameFor(userId) {
+  const record = authRecordFor(userId);
+  const legacy = usernameRegistry.get((usernameByUser.get(userId) || "").toLocaleLowerCase());
+  return String(record?.displayName || record?.name || legacy?.displayName || usernameByUser.get(userId) || "Chatly member");
+}
+function profileAvatarFor(userId) {
+  const record = authRecordFor(userId);
+  return profilePhotoUrlFor(record?.profilePhotoId) || avatarUrlFor(avatarByUser.get(userId)) || record?.picture || "";
+}
+function publicProfileFor(userId) {
+  const record = authRecordFor(userId);
+  const legacy = usernameRegistry.get((usernameByUser.get(userId) || "").toLocaleLowerCase());
+  const username = record?.username || usernameByUser.get(userId) || "";
+  if (!username) return null;
+  return { id: userId, displayName: displayNameFor(userId), username, profilePhotoUrl: profileAvatarFor(userId), bio: String(record?.bio || legacy?.bio || ""), createdAt: record?.createdAt || null };
+}
 function makeAvatarSvg(index) {
   const pick = (items, factor) => items[(index * factor + Math.floor(index / 7)) % items.length];
   const bg = pick(avatarBackgrounds, 5);
@@ -120,6 +142,49 @@ app.get("/api/avatars/:avatarId.svg", (req, res) => {
   const index = match ? Number(match[1]) : 0;
   if (!index || index > 120) return res.sendStatus(404);
   res.type("image/svg+xml").set("Cache-Control", "public, max-age=31536000, immutable").send(makeAvatarSvg(index));
+});
+function profileImageDimensions(buffer, type) {
+  if (type === "image/png" && buffer.length >= 24 && buffer.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) {
+    return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20), extension: "png" };
+  }
+  if (type === "image/jpeg" && buffer.length >= 4 && buffer[0] === 0xff && buffer[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 9 < buffer.length) {
+      if (buffer[offset] !== 0xff) { offset += 1; continue; }
+      const marker = buffer[offset + 1]; offset += 2;
+      if (marker === 0xd8 || marker === 0xd9 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+      if (offset + 2 > buffer.length) break;
+      const length = buffer.readUInt16BE(offset);
+      if (length < 2 || offset + length > buffer.length) break;
+      if ([0xc0,0xc1,0xc2,0xc3,0xc5,0xc6,0xc7,0xc9,0xca,0xcb,0xcd,0xce,0xcf].includes(marker)) {
+        return { width: buffer.readUInt16BE(offset + 5), height: buffer.readUInt16BE(offset + 3), extension: "jpg" };
+      }
+      offset += length;
+    }
+  }
+  if (type === "image/webp" && buffer.length >= 30 && buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WEBP") {
+    const kind = buffer.toString("ascii", 12, 16);
+    if (kind === "VP8X") return { width: 1 + buffer.readUIntLE(24, 3), height: 1 + buffer.readUIntLE(27, 3), extension: "webp" };
+    if (kind === "VP8 " && buffer.length >= 30 && buffer[23] === 0x9d && buffer[24] === 0x01 && buffer[25] === 0x2a) {
+      return { width: buffer.readUInt16LE(26) & 0x3fff, height: buffer.readUInt16LE(28) & 0x3fff, extension: "webp" };
+    }
+    if (kind === "VP8L" && buffer[20] === 0x2f) {
+      const bits = buffer.readUInt32LE(21);
+      return { width: (bits & 0x3fff) + 1, height: ((bits >>> 14) & 0x3fff) + 1, extension: "webp" };
+    }
+  }
+  return null;
+}
+app.get("/api/profile-photos/:photoId", async (req, res) => {
+  if (!/^[0-9a-f-]{36}$/i.test(req.params.photoId)) return res.sendStatus(404);
+  const owner = authUsers.find((item) => item.profilePhotoId === req.params.photoId);
+  if (!owner) return res.sendStatus(404);
+  const image = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" }[owner.profilePhotoType];
+  if (!image) return res.sendStatus(404);
+  try {
+    res.set({ "X-Content-Type-Options": "nosniff", "Cache-Control": "public, max-age=31536000, immutable" });
+    res.type(owner.profilePhotoType).send(await readFile(path.join(uploadDirectory, `profile-${req.params.photoId}.${image}`)));
+  } catch { res.sendStatus(404); }
 });
 function cookieValue(req, name) {
   const row = (req.headers.cookie || "").split(";").map((part) => part.trim()).find((part) => part.startsWith(`${name}=`));
@@ -169,7 +234,7 @@ io.use(async (socket, next) => {
   socket.data.userId = userToUse.id;
   socket.data.username = username;
   socket.data.googleAvatar = userToUse.user_metadata?.avatar_url || userToUse.user_metadata?.picture || "";
-  const avatar = avatarUrlFor(avatarByUser.get(userToUse.id)) || socket.data.googleAvatar;
+  const avatar = profileAvatarFor(userToUse.id) || socket.data.googleAvatar;
   try {
     const parsedAvatar = new URL(avatar);
     socket.data.avatar = parsedAvatar.protocol === "https:" ? parsedAvatar.href : "";
@@ -207,7 +272,7 @@ app.post("/auth/register", async (req, res) => {
   if (authUsers.some((user) => user.email === email)) return res.status(409).json({ error: "Email already in use" });
   try {
     const passwordHash = await bcrypt.hash(password, 12);
-    const user = { id: crypto.randomUUID(), name, email, passwordHash, picture: "", provider: "email", createdAt: Date.now() };
+    const user = { id: crypto.randomUUID(), name, displayName: name, username: "", bio: "", profilePhotoId: "", passwordHash, picture: "", provider: "email", createdAt: Date.now() };
     await saveAuthUsers([...authUsers, user]);
     const sessionUser = startSession(user, req, res, req.body?.remember !== false);
     await saveAuthSessions();
@@ -253,7 +318,7 @@ app.post("/auth/google", async (req, res) => {
     const email = payload.email.toLowerCase();
     let user = authUsers.find((item) => item.googleSub === payload.sub || item.email === email);
     if (!user) {
-      user = { id: crypto.randomUUID(), name: String(payload.name || email.split("@")[0]).slice(0, 80), email, picture: payload.picture || "", provider: "google", googleSub: payload.sub, createdAt: Date.now() };
+      user = { id: crypto.randomUUID(), name: String(payload.name || email.split("@")[0]).slice(0, 80), displayName: String(payload.name || email.split("@")[0]).slice(0, 80), username: "", bio: "", profilePhotoId: "", email, picture: payload.picture || "", provider: "google", googleSub: payload.sub, createdAt: Date.now() };
       await saveAuthUsers([...authUsers, user]);
     } else if (!user.googleSub) {
       user = { ...user, googleSub: payload.sub, picture: payload.picture || user.picture, provider: user.passwordHash ? user.provider : "google" };
@@ -272,7 +337,7 @@ app.post("/auth/supabase", async (req, res) => {
   const metadata = verified.user_metadata || {};
   let user = authUsers.find((item) => item.id === verified.id || item.email === email);
   if (!user) {
-    user = { id: verified.id, supabaseId: verified.id, email, name: String(metadata.full_name || metadata.name || email.split("@")[0]).slice(0, 80), picture: metadata.avatar_url || metadata.picture || "", provider: "google", createdAt: Date.now() };
+    user = { id: verified.id, supabaseId: verified.id, email, name: String(metadata.full_name || metadata.name || email.split("@")[0]).slice(0, 80), displayName: String(metadata.full_name || metadata.name || email.split("@")[0]).slice(0, 80), username: "", bio: "", profilePhotoId: "", picture: metadata.avatar_url || metadata.picture || "", provider: "google", createdAt: Date.now() };
     await saveAuthUsers([...authUsers, user]);
   } else if (user.supabaseId !== verified.id || (!user.picture && (metadata.avatar_url || metadata.picture))) {
     user = { ...user, supabaseId: verified.id, picture: user.picture || metadata.avatar_url || metadata.picture || "" };
@@ -355,39 +420,179 @@ app.post("/api/avatar", async (req, res) => {
 app.post("/api/username", async (req, res) => {
   const user = await getSupabaseUser(req);
   if (!user) return res.status(401).json({ error: "Sign in with Google first." });
-  const name = String(req.body?.username || "").trim().replace(/\s+/g, " ");
-  if (!name || name.length > 20 || /[\r\n\u0000-\u001f]/.test(name)) {
-    return res.status(400).json({ error: "Choose a username between 1 and 20 characters." });
+  const account = authRecordFor(user.id);
+  const displayName = String(req.body?.displayName || account?.displayName || account?.name || user.user_metadata?.name || "").trim();
+  const result = await savePublicProfile(user, { displayName, username: req.body?.username, bio: account?.bio || "" });
+  if (result.error) return res.status(result.status).json({ error: result.error });
+  res.json({ username: result.profile.username, profile: result.profile });
+});
+function normalizedUsername(value) {
+  return String(value || "").trim().replace(/^@/, "");
+}
+function usernameError(username) {
+  if (!/^[A-Za-z0-9_.]{3,20}$/.test(username)) return "Use 3–20 characters: letters, numbers, periods, or underscores.";
+  return "";
+}
+function profileForUser(userId) {
+  const account = authRecordFor(userId);
+  const oldUsername = usernameByUser.get(userId) || "";
+  const oldEntry = oldUsername ? usernameRegistry.get(oldUsername.toLowerCase()) : null;
+  return {
+    id: userId,
+    displayName: String(account?.displayName || account?.name || oldEntry?.displayName || oldUsername || "Chatly member"),
+    username: String(account?.username || oldUsername || ""),
+    profilePhotoUrl: profileAvatarFor(userId),
+    bio: String(account?.bio || oldEntry?.bio || ""),
+    createdAt: account?.createdAt || null
+  };
+}
+async function savePublicProfile(user, fields) {
+  const username = normalizedUsername(fields.username);
+  const displayName = String(fields.displayName || "").trim().replace(/\s+/g, " ");
+  const bio = String(fields.bio || "").trim();
+  const invalidUsername = usernameError(username);
+  if (invalidUsername) return { status: 400, error: invalidUsername };
+  if (!displayName || displayName.length > 60 || /[\u0000-\u001f]/.test(displayName)) return { status: 400, error: "Display name must be between 1 and 60 characters." };
+  if (bio.length > 160 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(bio)) return { status: 400, error: "Bio must be 160 characters or fewer." };
+  const operation = profileQueue.then(() => new Promise((resolve) => {
+    const run = async () => {
+      const key = username.toLowerCase();
+      const owner = usernameRegistry.get(key);
+      if (owner && owner.id !== user.id) return resolve({ status: 409, error: "Username is already taken." });
+      const account = authRecordFor(user.id) || {
+        id: user.id, email: user.email || "", name: displayName, displayName, username: "", bio: "", profilePhotoId: "",
+        picture: user.user_metadata?.avatar_url || user.user_metadata?.picture || "", provider: "legacy", createdAt: Date.now()
+      };
+      const previous = usernameByUser.get(user.id);
+      const next = new Map(usernameRegistry);
+      if (previous && previous.toLowerCase() !== key) next.delete(previous.toLowerCase());
+      const existing = next.get(key);
+      next.set(key, { ...(existing || {}), id: user.id, name: username });
+      const updatedAccount = { ...account, name: displayName, displayName, username, bio };
+      try {
+        await writeFile(usernameFile, JSON.stringify([...next.values()], null, 2), "utf8");
+        await saveAuthUsers(authUsers.some((item) => item.id === user.id)
+          ? authUsers.map((item) => item.id === user.id ? updatedAccount : item)
+          : [...authUsers, updatedAccount]);
+        usernameRegistry = next;
+        usernameByUser = new Map([...next.values()].map((entry) => [entry.id, entry.name]));
+        const profile = profileForUser(user.id);
+        for (const activeSocket of io.sockets.sockets.values()) {
+          if (activeSocket.data.userId !== user.id) continue;
+          const nameChanged = activeSocket.data.username !== username;
+          activeSocket.data.username = username;
+          const member = users.get(activeSocket.id);
+          if (member) users.set(activeSocket.id, { ...member, name: username, avatar: profile.profilePhotoUrl });
+          if (nameChanged) activeSocket.emit("username updated", username);
+        }
+        io.emit("profile updated", { userId: user.id, profile });
+        sendUserList();
+        resolve({ profile });
+      } catch (error) { resolve({ status: 500, error: "Could not save your profile." }); }
+    };
+    run();
+  }));
+  profileQueue = operation.then(() => undefined, () => undefined);
+  return operation;
+}
+app.get("/api/username/availability", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in to check username availability." });
+  const username = normalizedUsername(req.query.username);
+  const invalid = usernameError(username);
+  if (invalid) return res.status(400).json({ available: false, error: invalid });
+  const owner = usernameRegistry.get(username.toLowerCase());
+  res.json({ username, available: !owner || owner.id === user.id });
+});
+app.get("/api/profile", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in to view your profile." });
+  res.json({ profile: profileForUser(user.id) });
+});
+app.patch("/api/profile", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in to edit your profile." });
+  const result = await savePublicProfile(user, req.body || {});
+  if (result.error) return res.status(result.status).json({ error: result.error });
+  res.json({ profile: result.profile });
+});
+app.post("/api/conversations/direct", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in to start a conversation." });
+  const targetId = String(req.body?.userId || "");
+  if (!targetId || targetId === user.id) return res.status(400).json({ error: "Choose another Chatly user." });
+  const profile = profileForUser(targetId);
+  if (!profile?.username) return res.status(404).json({ error: "That Chatly user could not be found." });
+  const conversation = await ensureDirectConversation(user.id, targetId);
+  res.json({ conversationId: conversation.id, profile });
+});
+app.get("/api/users/search", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in to search Chatly users." });
+  const query = normalizedUsername(req.query.q).toLowerCase();
+  if (!query || query.length < 2 || !/^[a-z0-9_.]{1,20}$/.test(query)) return res.json({ users: [] });
+  const results = [...usernameByUser.entries()]
+    .filter(([id, username]) => id !== user.id && username.toLowerCase().includes(query))
+    .sort((a, b) => Number(!a[1].toLowerCase().startsWith(query)) - Number(!b[1].toLowerCase().startsWith(query)) || a[1].localeCompare(b[1]))
+    .slice(0, 20).map(([id]) => profileForUser(id));
+  res.json({ users: results });
+});
+app.get("/api/users/:username", async (req, res) => {
+  const viewer = await getSupabaseUser(req);
+  if (!viewer) return res.status(401).json({ error: "Sign in to view Chatly profiles." });
+  const username = normalizedUsername(req.params.username).toLowerCase();
+  const entry = usernameRegistry.get(username);
+  if (!entry) return res.sendStatus(404);
+  const profile = profileForUser(entry.id);
+  if (!profile?.username) return res.sendStatus(404);
+  res.json({ profile });
+});
+app.post("/api/profile/avatar", express.raw({ type: "application/octet-stream", limit: "4mb" }), async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in to upload a profile photo." });
+  const buffer = req.body;
+  const type = String(req.get("x-image-type") || "").toLowerCase();
+  if (!Buffer.isBuffer(buffer) || !buffer.length) return res.status(400).json({ error: "Choose an image to upload." });
+  if (!new Set(["image/jpeg", "image/png", "image/webp"]).has(type)) return res.status(415).json({ error: "Use a JPG, PNG, or WebP image." });
+  const dimensions = profileImageDimensions(buffer, type);
+  if (!dimensions) return res.status(415).json({ error: "That file is not a valid JPG, PNG, or WebP image." });
+  if (!dimensions.width || !dimensions.height || dimensions.width > 4096 || dimensions.height > 4096 || dimensions.width * dimensions.height > 12000000) return res.status(400).json({ error: "Choose an image no larger than 4096 × 4096 pixels." });
+  const id = crypto.randomUUID();
+  const filePath = path.join(uploadDirectory, `profile-${id}.${dimensions.extension}`);
+  const previous = authRecordFor(user.id);
+  const oldPhotoId = previous?.profilePhotoId;
+  const oldType = previous?.profilePhotoType;
+  try {
+    await writeFile(filePath, buffer, { flag: "wx" });
+    const updated = { ...(previous || { id: user.id, email: user.email || "", name: user.user_metadata?.name || user.email?.split("@")[0] || "Chatly user", provider: "legacy", createdAt: Date.now() }), profilePhotoId: id, profilePhotoType: type };
+    await saveAuthUsers(authUsers.some((item) => item.id === user.id) ? authUsers.map((item) => item.id === user.id ? updated : item) : [...authUsers, updated]);
+    if (oldPhotoId && oldType) {
+      const oldExtension = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" }[oldType];
+      if (oldExtension) unlink(path.join(uploadDirectory, `profile-${oldPhotoId}.${oldExtension}`)).catch(() => {});
+    }
+    const profile = profileForUser(user.id);
+    await updateProfilePhotoMessages(user.id, profile.profilePhotoUrl).catch((error) => console.error("Could not refresh saved message photos:", error));
+    res.status(201).json({ profile });
+  } catch (error) {
+    unlink(filePath).catch(() => {});
+    console.error("Could not save profile photo:", error);
+    res.status(500).json({ error: "Could not save your profile photo." });
   }
-  const operation = usernameQueue.then(async () => {
-    const key = name.toLocaleLowerCase();
-    const currentOwner = usernameRegistry.get(key);
-    if (currentOwner && currentOwner.id !== user.id) {
-      const error = new Error("That username is already taken. Please choose another.");
-      error.status = 409;
-      throw error;
-    }
-    const next = new Map(usernameRegistry);
-    const previous = usernameByUser.get(user.id);
-    if (previous && previous.toLocaleLowerCase() !== key) next.delete(previous.toLocaleLowerCase());
-    const previousEntry = previous ? usernameRegistry.get(previous.toLocaleLowerCase()) : null;
-    next.set(key, { ...previousEntry, ...currentOwner, id: user.id, name });
-    await writeFile(usernameFile, JSON.stringify([...next.values()], null, 2), "utf8");
-    usernameRegistry = next;
-    usernameByUser = new Map([...next.values()].map((entry) => [entry.id, entry.name]));
-    for (const activeSocket of io.sockets.sockets.values()) {
-      if (activeSocket.data.userId !== user.id) continue;
-      activeSocket.data.username = name;
-      const member = users.get(activeSocket.id);
-      if (member) users.set(activeSocket.id, { ...member, name });
-      activeSocket.emit("username updated", name);
-    }
-    sendUserList();
-    return name;
-  });
-  usernameQueue = operation.catch(() => {});
-  try { res.json({ username: await operation }); }
-  catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : "Could not save username." }); }
+});
+app.delete("/api/profile/avatar", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in to remove your profile photo." });
+  const previous = authRecordFor(user.id);
+  if (!previous?.profilePhotoId) return res.json({ profile: profileForUser(user.id) });
+  const extension = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" }[previous.profilePhotoType];
+  const updated = { ...previous, profilePhotoId: "", profilePhotoType: "" };
+  try {
+    await saveAuthUsers(authUsers.map((item) => item.id === user.id ? updated : item));
+    if (extension) unlink(path.join(uploadDirectory, `profile-${previous.profilePhotoId}.${extension}`)).catch(() => {});
+    const profile = profileForUser(user.id);
+    await updateProfilePhotoMessages(user.id, profile.profilePhotoUrl).catch((error) => console.error("Could not refresh saved message photos:", error));
+    res.json({ profile });
+  } catch { res.status(500).json({ error: "Could not remove your profile photo." }); }
 });
 app.get("/api/groups", async (req, res) => {
   const user = await getSupabaseUser(req);
@@ -399,7 +604,7 @@ app.get("/api/groups", async (req, res) => {
   }
   res.json(Object.values(groups).filter((group) => group.memberIds.includes(user.id)).map((group) => ({
     ...group,
-    members: group.memberIds.map((id) => ({ id, name: usernameByUser.get(id) || "Chatly member", avatar: onlineById.get(id)?.avatar || avatarUrlFor(avatarByUser.get(id)), online: onlineById.has(id) }))
+    members: group.memberIds.map((id) => ({ id, name: displayNameFor(id), username: usernameByUser.get(id) || "", avatar: onlineById.get(id)?.avatar || profileAvatarFor(id), online: onlineById.has(id) }))
   })));
 });
 app.get("/api/group-members", async (req, res) => {
@@ -411,19 +616,19 @@ app.get("/api/group-members", async (req, res) => {
     if (socket?.data.userId) onlineById.set(socket.data.userId, member);
   }
   res.json([...usernameByUser.entries()].filter(([id]) => id !== user.id).map(([id, name]) => ({
-    id, name, avatar: onlineById.get(id)?.avatar || avatarUrlFor(avatarByUser.get(id)), online: onlineById.has(id)
+    id, name: displayNameFor(id), username: name, avatar: onlineById.get(id)?.avatar || profileAvatarFor(id), online: onlineById.has(id)
   })).sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name)));
 });
 app.get("/api/search", async (req, res) => {
   const user = await getSupabaseUser(req);
   if (!user) return res.status(401).json({ error: "Sign in to search Chatly." });
-  const query = String(req.query.q || "").trim().slice(0, 100);
+  const query = normalizedUsername(req.query.q).trim().slice(0, 100);
   if (query.length < 2) return res.json({ people: [], messages: [], files: [], links: [] });
   const needle = query.toLocaleLowerCase();
   const people = [...usernameByUser.entries()]
     .filter(([id, name]) => id !== user.id && name.toLocaleLowerCase().includes(needle))
     .slice(0, 12)
-    .map(([id, name]) => ({ id, name, avatar: avatarUrlFor(avatarByUser.get(id)) }));
+    .map(([id]) => publicProfileFor(id));
   const matchingMessages = messages.filter((message) => {
     if (message.deleted || !canAccessConversation(message.conversation, user.id)) return false;
     return `${message.user} ${message.text || ""} ${message.attachment?.name || ""}`.toLocaleLowerCase().includes(needle);
@@ -464,6 +669,10 @@ app.get("/api/conversations", async (req, res) => {
   };
   chatRooms.forEach((room) => ensure(room, { type: "room", name: room, avatar: "" }));
   Object.values(groups).filter((group) => group.memberIds.includes(user.id)).forEach((group) => ensure(`group:${group.id}`, { type: "group", name: group.name, avatar: "" }));
+  Object.values(directConversations).filter((conversation) => conversation.participants.includes(user.id)).forEach((conversation) => {
+    const otherId = conversation.participants.find((id) => id !== user.id);
+    ensure(conversation.id, { type: "direct", name: displayNameFor(otherId), username: usernameByUser.get(otherId) || "", avatar: profileAvatarFor(otherId), userId: otherId });
+  });
   for (const message of messages) {
     if (message.deleted || !canAccessConversation(message.conversation, user.id)) continue;
     let details;
@@ -471,7 +680,7 @@ app.get("/api/conversations", async (req, res) => {
       const otherId = message.conversation.slice(3).split(":").find((id) => id !== user.id);
       if (!otherId) continue;
       const person = onlineById.get(otherId);
-      details = { type: "direct", name: usernameByUser.get(otherId) || "Chatly member", avatar: person?.avatar || avatarUrlFor(avatarByUser.get(otherId)), userId: otherId };
+      details = { type: "direct", name: displayNameFor(otherId), username: usernameByUser.get(otherId) || "", avatar: person?.avatar || profileAvatarFor(otherId), userId: otherId };
     } else if (message.conversation.startsWith("group:")) {
       const group = groups[message.conversation.slice(6)];
       if (!group) continue;
@@ -555,6 +764,19 @@ app.post("/api/saved-messages", async (req, res) => {
 });
 
 function directConversation(a, b) { return `dm:${[a, b].sort().join(":")}`; }
+async function ensureDirectConversation(a, b) {
+  const id = directConversation(a, b);
+  if (directConversations[id]) return directConversations[id];
+  const operation = directConversationsQueue.then(async () => {
+    if (directConversations[id]) return directConversations[id];
+    const next = { ...directConversations, [id]: { id, participants: [a, b].sort(), createdAt: Date.now() } };
+    await writeFile(directConversationsFile, JSON.stringify(next, null, 2), "utf8");
+    directConversations = next;
+    return next[id];
+  });
+  directConversationsQueue = operation.catch(() => {});
+  return operation;
+}
 function isDirectConversationFor(conversation, userId) {
   const parts = String(conversation || "").split(":");
   return parts.length === 3 && parts[0] === "dm" && parts.slice(1).includes(userId);
@@ -628,6 +850,26 @@ app.get("/api/uploads/:id", async (req, res) => {
 const users = new Map();
 let messages = [];
 let persistenceQueue = Promise.resolve();
+async function updateProfilePhotoMessages(userId, avatar) {
+  const operation = persistenceQueue.then(async () => {
+    const updated = messages.map((message) => message.senderId === userId
+      ? { ...message, googleAvatar: message.googleAvatar || message.avatar || "", avatar }
+      : message);
+    await writeFile(messageFile, updated.map((message) => JSON.stringify(message)).join("\n") + (updated.length ? "\n" : ""), "utf8");
+    messages = updated;
+  });
+  persistenceQueue = operation.catch((error) => console.error("Could not update saved message profile photos:", error));
+  await operation;
+  for (const socket of io.sockets.sockets.values()) {
+    if (socket.data.userId === userId) {
+      socket.data.avatar = avatar;
+      const member = users.get(socket.id);
+      if (member) users.set(socket.id, { ...member, avatar });
+    }
+  }
+  io.emit("avatar updated", { userId, avatar });
+  sendUserList();
+}
 
 async function loadMessages() {
   await mkdir(dataDirectory, { recursive: true });
@@ -669,6 +911,8 @@ async function loadMessages() {
   try { ticTacToeGames = JSON.parse(await readFile(ticTacToeFile, "utf8")); }
   catch (error) { if (error.code !== "ENOENT") throw error; }
   try { partyGames = JSON.parse(await readFile(partyGamesFile, "utf8")); }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
+  try { directConversations = JSON.parse(await readFile(directConversationsFile, "utf8")); }
   catch (error) { if (error.code !== "ENOENT") throw error; }
 }
 
@@ -929,14 +1173,15 @@ io.on("connection", (socket) => {
     sendConversation(socket, `group:${groupId}`);
   });
 
-  socket.on("open direct", (targetId) => {
+  socket.on("open direct", async (targetId) => {
     if (typeof targetId !== "string" || targetId === socket.data.userId || !usernameByUser.has(targetId)) return;
-    const conversation = directConversation(socket.data.userId, targetId);
+    const storedConversation = await ensureDirectConversation(socket.data.userId, targetId);
+    const conversation = storedConversation.id;
     sendConversation(socket, conversation);
     const target = [...users.entries()].find(([id]) => io.sockets.sockets.get(id)?.data.userId === targetId)?.[1];
     socket.emit("direct opened", {
       conversation,
-      user: { id: targetId, name: usernameByUser.get(targetId), avatar: target?.avatar || "" }
+      user: { id: targetId, name: displayNameFor(targetId), username: usernameByUser.get(targetId), avatar: target?.avatar || profileAvatarFor(targetId) }
     });
     socket.emit("tic-tac-toe state", ticTacToeGames[conversation] || null);
   });

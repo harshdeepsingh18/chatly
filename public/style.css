@@ -1158,6 +1158,38 @@ header #profile-btn { color: var(--text); }
 .details-file, .group-member-option { border-color: var(--line); background: var(--bg); }
 .group-card input, .settings-card input { border-color: var(--line); background: var(--bg); color: var(--text); }
 #settings-username-form button, #signout-btn { border-radius: 8px; background: var(--accent); color: #fffaf5; }
+
+/* Public people search and profile editing */
+.people-result-card { display: flex; align-items: center; gap: 1rem; padding: 1rem; margin: .75rem 0; border: 1px solid var(--line); border-radius: 16px; background: var(--surface, #fff); }
+.people-result-info { display: grid; flex: 1; min-width: 0; gap: .2rem; text-align: left; background: transparent; color: var(--text); }
+.people-result-info strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.people-result-info span { color: var(--accent); font-size: .9rem; }
+.people-result-info small { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.people-message-button { min-height: 44px; padding: .65rem 1rem; border-radius: 12px; color: #fff; background: var(--accent); font-weight: 700; }
+.profile-edit-form { max-height: min(65dvh, 650px); overflow-y: auto; }
+.username-check-row { display: flex; align-items: center; min-height: 48px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.username-check-row > span { padding-left: .85rem; color: var(--muted); }
+.username-check-row input { min-width: 0; flex: 1; border: 0 !important; background: transparent !important; }
+.username-check-row button { display: grid; place-items: center; width: 48px; height: 48px; color: var(--muted); background: transparent; }
+.username-availability { min-height: 1.2rem; margin: -.35rem 0 .25rem; color: var(--muted); font-size: .85rem; }
+.username-availability.is-available { color: #24814d; }
+.username-availability.is-taken { color: #b42318; }
+.profile-photo-picker { display: flex; align-items: center; gap: .85rem; padding: .75rem; border: 1px solid var(--line); border-radius: 12px; }
+.profile-photo-picker small { display: block; margin: .35rem 0; color: var(--muted); }
+.profile-photo-preview, .profile-photo-placeholder, .public-profile-photo, .public-profile-placeholder { display: grid; flex: 0 0 56px; place-items: center; width: 56px; height: 56px; overflow: hidden; border-radius: 50%; object-fit: cover; background: var(--panel); color: var(--muted); }
+.profile-photo-placeholder svg, .public-profile-placeholder svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 1.7; }
+.text-button { margin-top: .25rem; color: var(--accent); background: transparent; text-decoration: underline; }
+.public-profile-card { display: flex; align-items: center; flex-direction: column; gap: .6rem; }
+.public-profile-card .settings-heading { width: 100%; }
+.public-profile-card .public-profile-photo, .public-profile-card .public-profile-placeholder { width: 88px; height: 88px; flex-basis: 88px; }
+.public-profile-card h2, .public-profile-card p { margin: 0; text-align: center; }
+.public-profile-username { color: var(--accent); }
+.public-profile-bio { max-width: 34ch; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.public-profile-card .auth-submit { margin-top: .75rem; }
+@media (max-width: 600px) { .people-result-card { gap: .65rem; padding: .75rem; } .people-message-button { padding-inline: .7rem; } }
+:root[data-theme="dark"] .people-result-card, :root[data-theme="dark"] .username-check-row, :root[data-theme="dark"] .profile-photo-picker { background: #292725; border-color: #49443f; }
+:root[data-theme="dark"] .username-check-row input { color: var(--text); }
+:root[data-theme="dark"] .username-availability.is-available { color: #72d59a; }
 #create-group-btn { color: var(--accent); }
 #emoji-panel, .message-menu { background: var(--panel); color: var(--text); }
 

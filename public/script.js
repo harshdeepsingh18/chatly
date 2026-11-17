@@ -1046,7 +1046,7 @@ socket.on("direct opened", ({ user }) => {
   currentDirectUser = user;
   clearConversationUnread(currentConversation);
   loadConversations();
-  setConversationHeading("user", `Direct message with ${user.name}`);
+  setConversationHeading("user", `${user.name}${user.username ? ` · @${user.username}` : ""}`);
   $("call-controls").classList.remove("hidden");
   $("search-input").value = "";
   document.querySelectorAll(".room-button").forEach((button) => button.classList.remove("active"));
@@ -1815,14 +1815,21 @@ async function finishAuthentication(user) {
   if (window.location.pathname === "/login") history.replaceState(null, "", "/");
   authToken = "cookie-session";
   currentUserId = user.id;
-  currentProfile = { id: user.id, email: user.email || "", name: String(user.name || user.email?.split("@")[0] || "Chatly user").slice(0, 40), providerName: String(user.name || ""), avatar: user.picture || "" };
+  currentProfile = { id: user.id, email: user.email || "", name: String(user.name || user.email?.split("@")[0] || "Chatly user").slice(0, 40), providerName: String(user.name || ""), avatar: user.picture || "", bio: "", username: "" };
   currentProfile.googleAvatar = currentProfile.avatar;
   username = currentProfile.name;
   let hasSavedUsername = false;
   try {
-    const response = await fetch("/api/username", { headers: { Authorization: `Bearer ${authToken}` }, credentials: "same-origin" });
+    const response = await fetch("/api/profile", { headers: { Authorization: `Bearer ${authToken}` }, credentials: "same-origin" });
     const result = await response.json();
-    if (response.ok && result.username) { username = result.username; hasSavedUsername = true; }
+    if (response.ok && result.profile) {
+      const profile = result.profile;
+      Object.assign(currentProfile, profile, { avatar: profile.profilePhotoUrl || currentProfile.avatar });
+      if (profile.username) { username = profile.username; hasSavedUsername = true; }
+      $("setup-display-name").value = profile.displayName || currentProfile.providerName || currentProfile.name;
+      $("setup-bio").value = profile.bio || "";
+      setPhotoPreview("setup", profile.profilePhotoUrl || "");
+    }
   } catch {}
   try {
     const avatarResponse = await fetch("/api/avatar", { headers: { Authorization: `Bearer ${authToken}` }, credentials: "same-origin" });
@@ -1834,6 +1841,7 @@ async function finishAuthentication(user) {
   } catch {}
   updateProfilePanel();
   $("username").value = username;
+  $("setup-display-name").value ||= currentProfile.providerName || currentProfile.name;
   loginScreen.classList.add("hidden");
   if (hasSavedUsername) await enterChat();
   else usernameScreen.classList.remove("hidden");
@@ -1870,6 +1878,42 @@ async function enterChat() {
   socket.auth = { token: "cookie-session" };
   if (!socket.connected) socket.connect();
 }
+function setPhotoPreview(prefix, url) {
+  const image = $(`${prefix}-photo-preview`), placeholder = $(`${prefix}-photo-placeholder`), remove = $(`${prefix}-photo-remove`);
+  if (!image || !placeholder) return;
+  image.classList.toggle("hidden", !url); placeholder.classList.toggle("hidden", Boolean(url));
+  if (url) image.src = url;
+  if (remove) remove.classList.toggle("hidden", !url);
+}
+async function prepareProfilePhoto(file) {
+  if (!file || !["image/jpeg", "image/png", "image/webp"].includes(file.type)) throw new Error("Choose a JPG, PNG, or WebP image.");
+  if (file.size > 12 * 1024 * 1024) throw new Error("Choose an image smaller than 12 MB.");
+  const bitmap = await createImageBitmap(file);
+  if (bitmap.width > 4096 || bitmap.height > 4096 || bitmap.width * bitmap.height > 12000000) { bitmap.close(); throw new Error("Choose an image no larger than 4096 by 4096 pixels."); }
+  const scale = Math.min(1, 640 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas"); canvas.width = Math.max(1, Math.round(bitmap.width * scale)); canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height); bitmap.close();
+  const type = file.type === "image/png" ? "image/png" : "image/jpeg";
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, type, 0.86));
+  if (!blob) throw new Error("Could not prepare that image."); return blob;
+}
+async function uploadProfilePhoto(file, prefix, status) {
+  const blob = await prepareProfilePhoto(file);
+  const response = await fetch("/api/profile/avatar", { method: "POST", credentials: "same-origin", headers: { Authorization: `Bearer ${authToken}`, "Content-Type": "application/octet-stream", "X-Image-Type": blob.type }, body: blob });
+  const result = await response.json(); if (!response.ok) throw new Error(result.error || "Could not upload the profile photo.");
+  Object.assign(currentProfile, result.profile, { avatar: result.profile.profilePhotoUrl }); setPhotoPreview(prefix, result.profile.profilePhotoUrl); updateProfilePanel(); status.textContent = "Profile photo updated.";
+}
+async function checkUsernameAvailability(inputId, outputId) {
+  const value = $(inputId).value.trim(), output = $(outputId);
+  if (!value) { output.textContent = "Enter a username to check availability."; return false; }
+  output.textContent = "Checking availability…";
+  try { const response = await fetch(`/api/username/availability?username=${encodeURIComponent(value)}`, { credentials: "same-origin", headers: { Authorization: `Bearer ${authToken}` } }); const result = await response.json(); if (!response.ok) throw new Error(result.error || "Could not check availability."); output.textContent = result.available ? `✓ @${result.username} is available` : `✕ @${result.username} is already taken`; output.classList.toggle("is-available", result.available); output.classList.toggle("is-taken", !result.available); return result.available; }
+  catch (error) { output.textContent = error.message; output.classList.remove("is-available", "is-taken"); return false; }
+}
+$("check-username").addEventListener("click", () => checkUsernameAvailability("username", "username-availability"));
+$("settings-check-username").addEventListener("click", () => checkUsernameAvailability("settings-username", "settings-username-availability"));
+for (const [inputId, prefix] of [["setup-profile-photo", "setup"], ["settings-profile-photo", "settings"]]) $(inputId).addEventListener("change", async (event) => { const status = prefix === "setup" ? $("username-status") : $("settings-status"), file = event.currentTarget.files?.[0]; if (!file) return; try { await uploadProfilePhoto(file, prefix, status); } catch (error) { status.textContent = error.message; } event.currentTarget.value = ""; });
+for (const prefix of ["setup", "settings"]) $(`${prefix}-photo-remove`).addEventListener("click", async () => { const status = prefix === "setup" ? $("username-status") : $("settings-status"); try { const response = await fetch("/api/profile/avatar", { method: "DELETE", credentials: "same-origin", headers: { Authorization: `Bearer ${authToken}` } }); const result = await response.json(); if (!response.ok) throw new Error(result.error || "Could not remove your photo."); Object.assign(currentProfile, result.profile, { avatar: currentProfile.googleAvatar || "" }); setPhotoPreview(prefix, ""); updateProfilePanel(); status.textContent = "Profile photo removed."; } catch (error) { status.textContent = error.message; } });
 $("username-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const chosenName = $("username").value.trim();
@@ -1878,14 +1922,15 @@ $("username-form").addEventListener("submit", async (event) => {
   submit.disabled = true;
   status.textContent = "Checking username…";
   try {
-    const response = await fetch("/api/username", {
-      method: "POST",
+    const response = await fetch("/api/profile", {
+      method: "PATCH", credentials: "same-origin",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify({ username: chosenName })
+      body: JSON.stringify({ displayName: $("setup-display-name").value, username: chosenName, bio: $("setup-bio").value })
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Could not save that username.");
-    username = result.username;
+    Object.assign(currentProfile, result.profile, { avatar: result.profile.profilePhotoUrl || currentProfile.googleAvatar });
+    username = result.profile.username;
     status.textContent = "Opening your chat…";
     updateProfilePanel();
     await enterChat();
@@ -2045,6 +2090,9 @@ function updateProfilePanel() {
   $("settings-email").textContent = currentProfile.email;
   buildAvatarGrid();
   $("settings-username").value = username || "";
+  $("settings-display-name").value = currentProfile.displayName || currentProfile.name || "";
+  $("settings-bio").value = currentProfile.bio || "";
+  setPhotoPreview("settings", currentProfile.profilePhotoUrl || "");
   const profileButton = $("profile-btn");
   const firstName = String(currentProfile.providerName || username || currentProfile.name || "Profile").trim().split(/\s+/)[0];
   profileButton.replaceChildren(createAvatar(username || currentProfile.name, currentProfile.avatar, "avatar profile-button-avatar"), document.createElement("span"));
@@ -2110,7 +2158,7 @@ socket.on("avatar updated", (update) => {
   }
   renderMessages();
   renderConversationList();
-  if (!$("contacts-section").classList.contains("hidden")) renderContacts();
+  if (!$("contacts-section").classList.contains("hidden")) loadContacts();
   updateDetailsPanel();
 });
 $("profile-btn").addEventListener("click", () => { markAppPageActive("settings"); updateProfilePanel(); $("settings-status").textContent = ""; $("settings-modal").classList.remove("hidden"); });
@@ -2127,11 +2175,11 @@ $("settings-username-form").addEventListener("submit", async (event) => {
   save.disabled = true;
   status.textContent = "Saving username…";
   try {
-    const response = await fetch("/api/username", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ username: $("settings-username").value.trim() }) });
+    const response = await fetch("/api/profile", { method: "PATCH", credentials: "same-origin", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ displayName: $("settings-display-name").value, username: $("settings-username").value.trim(), bio: $("settings-bio").value }) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Could not save that username.");
-    username = result.username;
-    if (currentProfile) currentProfile.name = username;
+    username = result.profile.username;
+    Object.assign(currentProfile, result.profile, { avatar: result.profile.profilePhotoUrl || currentProfile.googleAvatar });
     $("me").textContent = "You are " + username;
     updateProfilePanel();
     status.textContent = "Username saved.";
@@ -2208,72 +2256,62 @@ socket.on("user list", (users) => {
   });
   updateDetailsPanel();
   renderConversationList();
-  if (!$("contacts-section").classList.contains("hidden")) renderContacts();
+  if (!$("contacts-section").classList.contains("hidden")) loadContacts();
   if (!$("games-section").classList.contains("hidden") && !currentDirectUser) renderGamesView();
 });
+socket.on("profile updated", ({ userId, profile }) => {
+  if (!profile) return;
+  if (currentDirectUser?.id === userId) { currentDirectUser.name = profile.displayName; currentDirectUser.username = profile.username; currentDirectUser.avatar = profile.profilePhotoUrl || currentDirectUser.avatar; setConversationHeading("user", `${profile.displayName} · @${profile.username}`); }
+  if (userId === currentUserId && currentProfile) { Object.assign(currentProfile, profile, { name: profile.displayName, avatar: profile.profilePhotoUrl || currentProfile.googleAvatar }); username = profile.username; updateProfilePanel(); }
+  if (!$ ("contacts-section").classList.contains("hidden")) loadContacts();
+});
 
-function renderContacts() {
-  const list = $("contacts-list");
-  const query = $("contacts-filter").value.trim().toLocaleLowerCase();
-  const onlineById = new Map(onlineUserCache.map((person) => [person.id, person]));
-  const contacts = contactsCache.filter((person) => person.name.toLocaleLowerCase().includes(query)).sort((a, b) => a.name.localeCompare(b.name));
-  list.replaceChildren();
-  if (!contacts.length) {
-    const empty = document.createElement("p");
-    empty.className = "contacts-empty";
-    empty.textContent = query ? "No contacts match that name." : "No contacts to show yet.";
-    list.append(empty);
-    return;
+let peopleSearchSequence = 0;
+let peopleSearchTimer;
+function renderContacts(people = []) {
+  const list = $("contacts-list"); list.replaceChildren();
+  const query = $("contacts-filter").value.trim();
+  if (!query) { const hint = document.createElement("p"); hint.className = "contacts-empty"; hint.textContent = "Search by username to find people on Chatly."; list.append(hint); return; }
+  if (!people.length) { const empty = document.createElement("p"); empty.className = "contacts-empty"; empty.textContent = "No Chatly users found."; list.append(empty); return; }
+  for (const person of people) {
+    const card = document.createElement("article"); card.className = "people-result-card";
+    card.append(createAvatar(person.displayName, person.profilePhotoUrl, "avatar contact-avatar"));
+    const info = document.createElement("button"); info.type = "button"; info.className = "people-result-info";
+    const name = document.createElement("strong"); name.textContent = person.displayName;
+    const handle = document.createElement("span"); handle.textContent = `@${person.username}`;
+    const bio = document.createElement("small"); bio.textContent = person.bio || "Chatly member";
+    info.append(name, handle, bio); info.addEventListener("click", () => openPublicProfile(person.username));
+    const message = document.createElement("button"); message.type = "button"; message.className = "people-message-button"; message.textContent = "Message";
+    message.addEventListener("click", () => startDirectConversation(person)); card.append(info, message); list.append(card);
   }
-  const byInitial = new Map();
-  contacts.forEach((person) => {
-    const initial = person.name.trim().charAt(0).toLocaleUpperCase() || "#";
-    if (!byInitial.has(initial)) byInitial.set(initial, []);
-    byInitial.get(initial).push(person);
-  });
-  [...byInitial.entries()].sort(([a], [b]) => a.localeCompare(b)).forEach(([initial, people]) => {
-    const section = document.createElement("section");
-    section.className = "contact-letter-group";
-    const heading = document.createElement("h2");
-    heading.textContent = initial;
-    section.append(heading);
-    people.forEach((person) => {
-      const online = onlineById.get(person.id);
-      const row = document.createElement("button");
-      row.type = "button";
-      row.className = "contact-row";
-      row.append(createAvatar(person.name, online?.avatar || person.avatar, "avatar contact-avatar"));
-      const info = document.createElement("span");
-      info.className = "contact-info";
-      const name = document.createElement("strong");
-      name.textContent = person.name;
-      const status = document.createElement("small");
-      status.textContent = online ? "Available now" : "Chatly contact";
-      info.append(name, status);
-      const statusDot = document.createElement("span");
-      statusDot.className = online ? "contact-online" : "contact-offline";
-      statusDot.setAttribute("aria-label", online ? "Online" : "Offline");
-      row.append(info, statusDot);
-      row.addEventListener("click", () => {
-        setAppPage("messages");
-        socket.emit("open direct", person.id);
-      });
-      section.append(row);
-    });
-    list.append(section);
-  });
 }
 async function loadContacts() {
   if (!authToken) return;
+  const query = $("contacts-filter").value.trim(), sequence = ++peopleSearchSequence;
+  if (query.replace(/^@/, "").length < 2) { renderContacts([]); return; }
+  $("contacts-list").textContent = "Searching…";
   try {
-    const response = await fetch("/api/group-members", { headers: { Authorization: `Bearer ${authToken}` } });
-    const members = await response.json();
-    if (!response.ok) throw new Error(members.error || "Could not load contacts.");
-    contactsCache = members;
-    renderContacts();
-  } catch (error) {
-    $("contacts-list").textContent = error.message;
-  }
+    const response = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`, { credentials: "same-origin", headers: { Authorization: `Bearer ${authToken}` } });
+    const result = await response.json(); if (!response.ok) throw new Error(result.error || "Could not search Chatly.");
+    if (sequence === peopleSearchSequence) renderContacts(result.users || []);
+  } catch (error) { if (sequence === peopleSearchSequence) $("contacts-list").textContent = error.message; }
+}
+async function openPublicProfile(usernameValue) {
+  try {
+    const response = await fetch(`/api/users/${encodeURIComponent(usernameValue)}`, { credentials: "same-origin", headers: { Authorization: `Bearer ${authToken}` } });
+    const result = await response.json(); if (!response.ok) throw new Error(result.error || "Could not load this profile.");
+    const profile = result.profile; $("public-profile-name").textContent = profile.displayName; $("public-profile-username").textContent = `@${profile.username}`; $("public-profile-bio").textContent = profile.bio || "";
+    const photo = $("public-profile-photo"); photo.classList.toggle("hidden", !profile.profilePhotoUrl); $("public-profile-placeholder").classList.toggle("hidden", Boolean(profile.profilePhotoUrl)); if (profile.profilePhotoUrl) photo.src = profile.profilePhotoUrl;
+    $("public-profile-message").onclick = () => { $("public-profile-modal").classList.add("hidden"); startDirectConversation(profile); };
+    $("public-profile-modal").classList.remove("hidden");
+  } catch (error) { showErrorToast(error.message); }
+}
+async function startDirectConversation(person) {
+  try {
+    const response = await fetch("/api/conversations/direct", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ userId: person.id }) });
+    const result = await response.json(); if (!response.ok) throw new Error(result.error || "Could not open that conversation.");
+    setAppPage("messages"); if (!socket.connected) socket.connect(); socket.emit("open direct", person.id); sidebar.classList.remove("open");
+  } catch (error) { showErrorToast(error.message); }
 }
 function markAppPageActive(page) {
   document.querySelectorAll("[data-page]").forEach((button) => {
@@ -2316,7 +2354,9 @@ function setAppPage(page) {
   }
 }
 document.querySelectorAll("[data-page]").forEach((button) => button.addEventListener("click", () => setAppPage(button.dataset.page)));
-$("contacts-filter").addEventListener("input", renderContacts);
+$("contacts-filter").addEventListener("input", () => { clearTimeout(peopleSearchTimer); peopleSearchTimer = setTimeout(loadContacts, 180); });
+$("public-profile-close").addEventListener("click", () => $("public-profile-modal").classList.add("hidden"));
+$("public-profile-modal").addEventListener("click", (event) => { if (event.target === $("public-profile-modal")) $("public-profile-modal").classList.add("hidden"); });
 $("focus-toggle").addEventListener("click", () => setFocusMode(!isFocusModeActive()));
 $("settings-focus-toggle").addEventListener("click", () => setFocusMode(!isFocusModeActive()));
 $("settings-aura-open").addEventListener("click", () => {
