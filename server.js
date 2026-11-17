@@ -5,6 +5,8 @@ const crypto = require("node:crypto");
 const { readFileSync } = require("node:fs");
 const { appendFile, mkdir, readFile, unlink, writeFile } = require("node:fs/promises");
 const { Server } = require("socket.io");
+const bcrypt = require("bcryptjs");
+const { OAuth2Client } = require("google-auth-library");
 
 function loadEnvFile(file) {
   let contents;
@@ -35,6 +37,14 @@ const groupsFile = path.join(dataDirectory, "groups.json");
 const ticTacToeFile = path.join(dataDirectory, "tic-tac-toe.json");
 const partyGamesFile = path.join(dataDirectory, "party-games.json");
 const uploadDirectory = path.join(dataDirectory, "uploads");
+const authUsersFile = path.join(dataDirectory, "auth-users.json");
+const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
+const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
+const googleVerifier = new OAuth2Client(googleClientId || undefined);
+const authSessions = new Map();
+let authUsers = [];
+let authUsersQueue = Promise.resolve();
+const SESSION_COOKIE = "chatly_session";
 const supabaseUrl = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "";
 const configuredOpenAiApiKey = process.env.OPENAI_API_KEY || "";
@@ -45,10 +55,10 @@ const geminiApiKey = configuredGeminiApiKey.toLowerCase().startsWith("your-") ? 
 const geminiModel = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 const chatRooms = ["general", "doubts", "notes"];
 
-app.use(express.static(path.join(__dirname, "public")));
 app.use(express.json({ limit: "8kb" }));
+app.use(express.static(path.join(__dirname, "public")));
 app.get("/config.js", (_req, res) => {
-  res.type("application/javascript").send(`window.CHATLY_SUPABASE_URL = ${JSON.stringify(supabaseUrl)}; window.CHATLY_SUPABASE_ANON_KEY = ${JSON.stringify(supabaseAnonKey)}; window.CHATLY_ROOMS = ${JSON.stringify(chatRooms)}; window.CHATLY_AURA_ENABLED = ${Boolean(openAiApiKey || geminiApiKey)};`);
+  res.type("application/javascript").send(`window.CHATLY_SUPABASE_URL = ${JSON.stringify(supabaseUrl)}; window.CHATLY_SUPABASE_ANON_KEY = ${JSON.stringify(supabaseAnonKey)}; window.CHATLY_GOOGLE_CLIENT_ID = ${JSON.stringify(googleClientId)}; window.CHATLY_ROOMS = ${JSON.stringify(chatRooms)}; window.CHATLY_AURA_ENABLED = ${Boolean(openAiApiKey || geminiApiKey)};`);
 });
 
 let savedMessages = {};
@@ -102,33 +112,132 @@ app.get("/api/avatars/:avatarId.svg", (req, res) => {
   if (!index || index > 120) return res.sendStatus(404);
   res.type("image/svg+xml").set("Cache-Control", "public, max-age=31536000, immutable").send(makeAvatarSvg(index));
 });
-async function getSupabaseUser(req) {
-  const token = req.get("authorization")?.replace(/^Bearer\s+/i, "");
-  return getSupabaseUserForToken(token);
+function cookieValue(req, name) {
+  const row = (req.headers.cookie || "").split(";").map((part) => part.trim()).find((part) => part.startsWith(`${name}=`));
+  return row ? decodeURIComponent(row.slice(name.length + 1)) : "";
 }
-async function getSupabaseUserForToken(token) {
-  if (!supabaseUrl || !supabaseAnonKey || !token) return null;
+function sessionUser(req) {
+  const cookie = cookieValue(req, SESSION_COOKIE);
+  const [id, signature] = cookie.split(".");
+  if (!id || !signature) return null;
+  const expected = crypto.createHmac("sha256", sessionSecret).update(id).digest("hex");
+  const a = Buffer.from(signature); const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  const session = authSessions.get(id);
+  if (!session || session.expiresAt < Date.now()) { authSessions.delete(id); return null; }
+  const user = authUsers.find((item) => item.id === session.userId);
+  return user ? { id: user.id, email: user.email, user_metadata: { name: user.name, full_name: user.name, avatar_url: user.picture || "", picture: user.picture || "" } } : null;
+}
+function setSessionCookie(res, id, req) {
+  const signature = crypto.createHmac("sha256", sessionSecret).update(id).digest("hex");
+  const secure = req.secure || req.get("x-forwarded-proto") === "https";
+  res.cookie(SESSION_COOKIE, `${id}.${signature}`, { httpOnly: true, secure, sameSite: "lax", path: "/", maxAge: 30 * 24 * 60 * 60 * 1000 });
+}
+function startSession(user, req, res) {
+  const id = crypto.randomBytes(32).toString("base64url");
+  authSessions.set(id, { userId: user.id, expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000 });
+  setSessionCookie(res, id, req);
+  return { id: user.id, email: user.email, name: user.name, picture: user.picture || "", provider: user.provider };
+}
+async function getSupabaseUser(req) {
+  const user = sessionUser(req);
+  if (user) return user;
+  const token = req.get("authorization")?.replace(/^Bearer\s+/i, "");
+  if (!supabaseUrl || !supabaseAnonKey || !token || token === "cookie-session") return null;
   try {
     const response = await fetch(`${supabaseUrl}/auth/v1/user`, { headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${token}` } });
-    if (!response.ok) return null;
-    return await response.json();
+    return response.ok ? await response.json() : null;
   } catch { return null; }
 }
 io.use(async (socket, next) => {
-  const user = await getSupabaseUserForToken(socket.handshake.auth?.token);
-  if (!user) return next(new Error("Google sign-in is required to join Chatly."));
-  const username = usernameByUser.get(user.id);
+  const user = sessionUser({ headers: socket.request.headers, get: (name) => socket.request.headers[name.toLowerCase()], secure: socket.request.connection?.encrypted });
+  const authenticatedUser = user || await getSupabaseUserForSocket(socket.handshake.auth?.token);
+  if (!authenticatedUser) return next(new Error("Please sign in to join Chatly."));
+  const userToUse = authenticatedUser;
+  const username = usernameByUser.get(userToUse.id);
   if (!username) return next(new Error("Choose a username before joining Chatly."));
-  socket.data.authenticatedUser = user;
-  socket.data.userId = user.id;
+  socket.data.authenticatedUser = userToUse;
+  socket.data.userId = userToUse.id;
   socket.data.username = username;
-  socket.data.googleAvatar = user.user_metadata?.avatar_url || user.user_metadata?.picture || "";
-  const avatar = avatarUrlFor(avatarByUser.get(user.id)) || socket.data.googleAvatar;
+  socket.data.googleAvatar = userToUse.user_metadata?.avatar_url || userToUse.user_metadata?.picture || "";
+  const avatar = avatarUrlFor(avatarByUser.get(userToUse.id)) || socket.data.googleAvatar;
   try {
     const parsedAvatar = new URL(avatar);
     socket.data.avatar = parsedAvatar.protocol === "https:" ? parsedAvatar.href : "";
   } catch { socket.data.avatar = ""; }
   next();
+});
+async function getSupabaseUserForSocket(token) {
+  if (!supabaseUrl || !supabaseAnonKey || !token || token === "cookie-session") return null;
+  try { const response = await fetch(`${supabaseUrl}/auth/v1/user`, { headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${token}` } }); return response.ok ? await response.json() : null; }
+  catch { return null; }
+}
+function publicAuthUser(user) {
+  return { id: user.id, email: user.email, name: user.name, picture: user.picture || "", provider: user.provider || "email" };
+}
+async function saveAuthUsers(nextUsers) {
+  const operation = authUsersQueue.then(async () => {
+    await mkdir(dataDirectory, { recursive: true });
+    await writeFile(authUsersFile, JSON.stringify(nextUsers, null, 2), "utf8");
+    authUsers = nextUsers;
+  });
+  authUsersQueue = operation.catch(() => {});
+  await operation;
+}
+app.post("/auth/register", async (req, res) => {
+  const name = String(req.body?.name || "").trim().slice(0, 80);
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const password = String(req.body?.password || "");
+  if (!name) return res.status(400).json({ error: "Enter your name." });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: "Enter a valid email address." });
+  if (password.length < 8) return res.status(400).json({ error: "Use a password with at least 8 characters." });
+  if (authUsers.some((user) => user.email === email)) return res.status(409).json({ error: "Email already in use" });
+  try {
+    const passwordHash = await bcrypt.hash(password, 12);
+    const user = { id: crypto.randomUUID(), name, email, passwordHash, picture: "", provider: "email", createdAt: Date.now() };
+    await saveAuthUsers([...authUsers, user]);
+    res.status(201).json({ user: startSession(user, req, res) });
+  } catch (error) { console.error("Could not register account:", error); res.status(500).json({ error: "Could not create your account. Try again." }); }
+});
+app.post("/auth/login", async (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const password = String(req.body?.password || "");
+  const user = authUsers.find((item) => item.email === email);
+  const valid = user?.passwordHash ? await bcrypt.compare(password, user.passwordHash) : false;
+  if (!valid) return res.status(401).json({ error: "Wrong email or password" });
+  res.json({ user: startSession(user, req, res) });
+});
+app.post("/auth/google", async (req, res) => {
+  const credential = String(req.body?.credential || "");
+  if (!googleClientId) return res.status(503).json({ error: "Google sign-in is not configured yet." });
+  if (!credential || credential.length > 10000) return res.status(400).json({ error: "Google sign-in did not return a valid credential." });
+  try {
+    const ticket = await googleVerifier.verifyIdToken({ idToken: credential, audience: googleClientId });
+    const payload = ticket.getPayload();
+    if (!payload?.sub || !payload.email || !payload.email_verified) return res.status(401).json({ error: "Google could not verify this account." });
+    const email = payload.email.toLowerCase();
+    let user = authUsers.find((item) => item.googleSub === payload.sub || item.email === email);
+    if (!user) {
+      user = { id: crypto.randomUUID(), name: String(payload.name || email.split("@")[0]).slice(0, 80), email, picture: payload.picture || "", provider: "google", googleSub: payload.sub, createdAt: Date.now() };
+      await saveAuthUsers([...authUsers, user]);
+    } else if (!user.googleSub) {
+      user = { ...user, googleSub: payload.sub, picture: payload.picture || user.picture, provider: user.passwordHash ? user.provider : "google" };
+      await saveAuthUsers(authUsers.map((item) => item.id === user.id ? user : item));
+    }
+    res.json({ user: startSession(user, req, res) });
+  } catch (error) { console.warn("Google ID token verification failed:", error.message); res.status(401).json({ error: "Google sign-in could not be verified. Please try again." }); }
+});
+app.post("/auth/logout", (req, res) => {
+  const [id] = cookieValue(req, SESSION_COOKIE).split(".");
+  if (id) authSessions.delete(id);
+  res.clearCookie(SESSION_COOKIE, { httpOnly: true, secure: req.secure || req.get("x-forwarded-proto") === "https", sameSite: "lax", path: "/" });
+  res.json({ ok: true });
+});
+app.get("/auth/me", (req, res) => {
+  const user = sessionUser(req);
+  if (!user) return res.status(401).json({ user: null });
+  const stored = authUsers.find((item) => item.id === user.id);
+  res.json({ user: publicAuthUser(stored) });
 });
 app.get("/api/username", async (req, res) => {
   const user = await getSupabaseUser(req);
@@ -1221,6 +1330,8 @@ snakeArenaTimer.unref();
 const PORT = process.env.PORT || 3000;
 
 async function startServer() {
+  try { authUsers = JSON.parse(await readFile(authUsersFile, "utf8")); }
+  catch (error) { if (error.code !== "ENOENT") throw error; authUsers = []; }
   await loadMessages();
   server.listen(PORT, () => {
     console.log("Chatly running at http://localhost:" + PORT);

@@ -107,6 +107,31 @@ const typingBox = $("typing");
 const sidebar = $("sidebar");
 const emojiPanel = $("emoji-panel");
 
+function showDemoConversation() {
+  loginScreen.classList.add("hidden");
+  usernameScreen.classList.add("hidden");
+  chatScreen.classList.remove("hidden");
+  currentUserId = "harshdeep";
+  username = "Harshdeep";
+  currentProfile = { id: "harshdeep", email: "harshdeep@example.com", name: "Harshdeep", avatar: "", googleAvatar: "" };
+  currentConversation = "general";
+  setConversationHeading("hash", "general");
+  const subtitle = $("conversation-subtitle");
+  if (subtitle) subtitle.textContent = "Community room — 0 online";
+  if (input) input.placeholder = "Message, /ai summarize, or @aura ask";
+  allMessages = [
+    { id: "demo-1", senderId: "aura", user: "Aura", text: "Hey Harshdeep! How can I help you with your studies today?", time: "2025-11-17T11:18:00", reactions: {}, reactionNames: {} },
+    { id: "demo-2", senderId: "harshdeep", user: "Harshdeep", text: "Can you explain the intersection of two arrays?", time: "2025-11-17T11:18:30", reactions: {}, reactionNames: {} },
+    { id: "demo-3", senderId: "aura", user: "Aura", text: "Sure! Count one array in a hash map, then walk the other and keep every match.", time: "2025-11-17T11:19:00", reactions: {}, reactionNames: {} }
+  ];
+  renderMessages();
+  if (typeof updateProfilePanel === "function") updateProfilePanel();
+  input.value = "";
+  updateComposerState();
+}
+
+document.addEventListener("DOMContentLoaded", showDemoConversation);
+
 // ----- 1. Authenticated entry -----
 socket.on("connect", () => {
   socket.emit("user joined");
@@ -131,6 +156,7 @@ let voiceStream = null;
 let voiceChunks = [];
 const voiceMessageButton = $("voice-message-btn");
 const voiceMicIcon = iconSvg("mic", "voice-mic-icon");
+let voiceRecognition = null;
 let pendingMediaRequest = null;
 const micIconSvg = iconSvg("mic");
 const cameraIconSvg = '<svg class="lucide-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 5H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Z"/><path d="m16 10 5-3v10l-5-3"/></svg>';
@@ -220,7 +246,43 @@ function beginVoiceRecording(stream) {
     addSystemMessage("Could not start voice recording in this browser.");
   }
 }
-voiceMessageButton.addEventListener("click", () => {
+function startSpeechInput() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) return false;
+  try {
+    const recognition = new SpeechRecognition();
+    const baseText = input.value.trimEnd();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = navigator.language || "en-US";
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results).map((result) => result[0]?.transcript || "").join("").trim();
+      input.value = [baseText, transcript].filter(Boolean).join(baseText ? " " : "");
+      updateComposerState();
+    };
+    recognition.onerror = (event) => {
+      if (event.error !== "no-speech" && event.error !== "aborted") showErrorToast("Voice input stopped: " + event.error);
+    };
+    recognition.onend = () => {
+      voiceRecognition = null;
+      voiceMessageButton.classList.remove("recording");
+      voiceMessageButton.innerHTML = voiceMicIcon;
+      voiceMessageButton.setAttribute("aria-label", "Start voice input");
+      voiceMessageButton.title = "Start voice input";
+      input.focus();
+    };
+    recognition.start();
+    voiceRecognition = recognition;
+    voiceMessageButton.classList.add("recording");
+    voiceMessageButton.innerHTML = '<span class="voice-stop-icon" aria-hidden="true"></span>';
+    voiceMessageButton.setAttribute("aria-label", "Stop voice input");
+    voiceMessageButton.title = "Listening. Select to stop.";
+    return true;
+  } catch {
+    return false;
+  }
+}
+function startVoiceRecordingFallback() {
   if (voiceRecorder?.state === "recording") {
     voiceRecorder.stop();
     voiceMessageButton.disabled = true;
@@ -237,12 +299,20 @@ voiceMessageButton.addEventListener("click", () => {
     return;
   }
   requestMediaPermission({ kind: "voice-message", video: false, onGranted: beginVoiceRecording });
+}
+voiceMessageButton.addEventListener("click", () => {
+  if (voiceRecognition) { voiceRecognition.stop(); return; }
+  if (startSpeechInput()) return;
+  const supported = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
+  if (!supported && typeof MediaRecorder !== "undefined") showVoiceFallbackToast();
+  startVoiceRecordingFallback();
 });
 function activateAuraShortcut() {
   const currentText = input.value.trimStart();
   if (!/^@aura\b/i.test(currentText) && !/^\/aura\b/i.test(currentText)) input.value = currentText ? `@aura ${currentText}` : "@aura ";
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
+  updateComposerState();
 }
 const auraPanel = $("aura-panel");
 const auraPanelContent = $("aura-panel-content");
@@ -299,17 +369,41 @@ function submitAuraQuestion(form) {
 function requestAura(prompt, kind = "chat", mode = "chat") {
   const requestId = window.crypto?.randomUUID?.() || `aura-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   pendingAuraRequests.set(requestId, { kind, mode });
-  auraPanelContent.innerHTML = `<div class="aura-loading" role="status"><span class="aura-spinner" aria-hidden="true"></span><strong>Aura is thinking…</strong><small>Your answer will appear here and in the chat.</small></div>`;
-  socket.emit("aura request", { prompt, requestId, kind, mode });
+  if (mode === "aura-study") {
+    const pending = document.createElement("div");
+    pending.className = "aura-study-message aura-study-reply aura-study-pending";
+    pending.dataset.requestId = requestId;
+    pending.setAttribute("role", "status");
+    pending.innerHTML = `<span class="aura-study-avatar">${iconSvg("aura", "aura-icon")}</span><span class="aura-study-bubble"><span class="aura-study-dots"><i></i><i></i><i></i></span><small>Aura is thinking</small></span>`;
+    $("aura-study-messages").append(pending);
+    $("aura-study-messages").scrollTop = $("aura-study-messages").scrollHeight;
+  } else {
+    $("aura-thinking-indicator").classList.remove("hidden");
+    auraPanelContent.innerHTML = `<div class="aura-loading" role="status"><span class="aura-spinner" aria-hidden="true"></span><strong>Aura is thinking…</strong><small>Your answer will appear here and in the chat.</small></div>`;
+  }
+  socket.emit("aura request", { prompt, requestId, kind, mode: mode === "aura-study" ? "composer" : mode });
 }
 function finishAuraRequest(requestId, answer, error = "") {
   const request = pendingAuraRequests.get(requestId);
   if (!request) return;
   pendingAuraRequests.delete(requestId);
+  if (request.mode === "aura-study") {
+    $("aura-study-messages").querySelector(`[data-request-id="${CSS.escape(requestId)}"]`)?.remove();
+    if (error) {
+      showErrorToast(error);
+      appendAuraStudyMessage("aura", "I couldn’t finish that request. Please try again.");
+    } else {
+      appendAuraStudyMessage("aura", answer);
+    }
+    return;
+  }
+  if (!pendingAuraRequests.size) $("aura-thinking-indicator").classList.add("hidden");
+  if (error) showErrorToast(error);
   if (request.mode === "composer" && !error) {
     input.value = answer;
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
+    updateComposerState();
     auraPanelContent.innerHTML = `<div class="aura-result-note"><strong>Text ready to edit</strong><p>Aura put its suggestion in your composer. Review it before sending.</p><button type="button" class="aura-back" data-aura-action="home">Back to Aura tools</button></div>`;
     return;
   }
@@ -318,7 +412,39 @@ function finishAuraRequest(requestId, answer, error = "") {
     : `<div class="aura-result-note"><strong>${iconSvg("aura", "lucide-icon aura-icon")} Aura’s answer is in the chat</strong><p>${request.kind === "reply" ? "Choose a suggestion below Aura’s message to use it." : "Your answer is ready in the conversation."}</p><button type="button" class="aura-back" data-aura-action="home">Back to Aura tools</button></div>`;
   if (error) auraPanelContent.querySelector(".aura-error p").textContent = error;
 }
-$("aura-shortcut-btn").addEventListener("click", openAuraPanel);
+function appendAuraStudyMessage(sender, text) {
+  const row = document.createElement("div");
+  row.className = `aura-study-message aura-study-${sender}`;
+  if (sender === "aura") {
+    const avatar = document.createElement("span");
+    avatar.className = "aura-study-avatar";
+    avatar.innerHTML = iconSvg("aura", "aura-icon");
+    row.append(avatar);
+  }
+  const bubble = document.createElement("span");
+  bubble.className = "aura-study-bubble";
+  bubble.textContent = text;
+  row.append(bubble);
+  $("aura-study-messages").append(row);
+  $("aura-study-messages").scrollTop = $("aura-study-messages").scrollHeight;
+}
+$("aura-study-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const prompt = $("aura-study-input").value.trim();
+  if (!prompt) return;
+  const history = [...$("aura-study-messages").querySelectorAll(".aura-study-message:not(.aura-study-pending)")]
+    .slice(-6).map((row) => `${row.classList.contains("aura-study-user") ? "Student" : "Aura"}: ${row.querySelector(".aura-study-bubble")?.textContent || ""}`).join("\n");
+  appendAuraStudyMessage("user", prompt);
+  $("aura-study-input").value = "";
+  $("aura-study-send").disabled = true;
+  requestAura(history ? `Continue this study conversation using its recent context:\n${history.slice(-320)}\nStudent: ${prompt.slice(0, 620)}` : prompt, "study", "aura-study");
+  $("aura-study-input").focus();
+});
+$("aura-study-input").addEventListener("input", () => { $("aura-study-send").disabled = !$("aura-study-input").value.trim(); });
+$("aura-study-input").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); $("aura-study-form").requestSubmit(); }
+});
+$("aura-shortcut-btn").addEventListener("click", activateAuraShortcut);
 $("aura-panel-close").addEventListener("click", closeAuraPanel);
 auraPanelContent.addEventListener("click", (event) => {
   const actionButton = event.target.closest("[data-aura-action]");
@@ -375,8 +501,9 @@ $("message-form").addEventListener("submit", async (e) => {
       input.focus();
       return;
     }
-    socket.emit("aura request", `/ai ${prompt}`);
+    requestAura(`/ai ${prompt}`);
     input.value = "";
+    updateComposerState();
     emojiPanel.classList.add("hidden");
     socket.emit("typing", false);
     return;
@@ -407,14 +534,16 @@ $("message-form").addEventListener("submit", async (e) => {
     }
     socket.emit("chat message", { text, attachment });
     const auraMatch = text.match(/^@aura\s+([\s\S]+)/i);
-    if (auraMatch) socket.emit("aura request", auraMatch[1]);
+    if (auraMatch) requestAura(auraMatch[1]);
     input.value = "";
+    updateComposerState();
     selectedFile = null;
     $("file-input").value = "";
     $("file-btn").innerHTML = iconSvg("plus");
     $("file-btn").title = "Attach a file";
-  } catch (error) { addSystemMessage(error.message); }
-  finally { $("send-btn").disabled = false; }
+    updateAttachmentPreview();
+  } catch (error) { addSystemMessage(error.message); showErrorToast(error.message); }
+  finally { updateComposerState(); }
   socket.emit("typing", false);
   emojiPanel.classList.add("hidden");
 });
@@ -424,9 +553,16 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
   const message = { id, conversation, user, text, time, avatar, attachment, senderId, assistant, auraKind, requestId, deleted, reactions, reactionNames };
   const key = messageKey(message);
   if (showSavedOnly && !savedItems.some((item) => messageKey(item) === key)) return;
+  const stickToBottom = nearMessagesBottom();
   const box = document.createElement("div");
   const ownMessage = senderId ? senderId === currentUserId : user === username;
-  box.className = "msg" + (user === username ? " mine" : "") + (assistant ? " aura-message" : "");
+  box.className = "msg" + (ownMessage ? " mine" : "") + (assistant ? " aura-message" : "");
+  const senderKey = assistant ? "assistant:aura" : String(senderId || user);
+  box.dataset.senderKey = senderKey;
+  const previousMessage = messagesBox.lastElementChild;
+  if (previousMessage?.classList.contains("msg") && previousMessage.dataset.senderKey === senderKey) {
+    box.classList.add("same-sender");
+  }
   if (id) box.dataset.messageId = id;
   const bubble = document.createElement("div");
   bubble.className = "msg-bubble";
@@ -443,13 +579,12 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
 
   const body = document.createElement("span");
   body.className = "message-text";
-  body.textContent = text;            // textContent keeps user input safe from HTML injection
+  appendHighlightedText(body, text, $("search-input").value.trim());
 
   const stamp = document.createElement("span");
   stamp.className = "time";
   stamp.textContent = new Date(time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-  bubble.append(name);
   if (text) bubble.append(body);
   if (assistant && message.auraKind === "reply") {
     const suggestions = text.split(/\r?\n/).map((line) => line.trim().replace(/^(?:\d+[.)]\s*|[-*•]\s*)/, "").replace(/^['“”"]|['“”"]$/g, "")).filter(Boolean);
@@ -468,6 +603,7 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
           input.value = suggestion;
           input.focus();
           input.setSelectionRange(input.value.length, input.value.length);
+          updateComposerState();
         });
         item.append(suggestionText, useReply);
         suggestionList.append(item);
@@ -481,7 +617,6 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
     bubble.append(file);
     showAttachment(attachment, file);
   }
-  bubble.append(stamp);
   const reactionEntries = Object.entries(reactions || {}).filter(([, reactors]) => Array.isArray(reactors) && reactors.length);
   let reactionRow = null;
   if (reactionEntries.length) {
@@ -514,7 +649,7 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
   }
   if (deleted) {
     box.classList.add("deleted-message");
-    box.append(bubble);
+    box.append(name, bubble, stamp);
     messagesBox.appendChild(box);
     messagesBox.scrollTop = messagesBox.scrollHeight;
     return;
@@ -596,6 +731,7 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
     input.value = `${user}: ${text}`;
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
+    updateComposerState();
     closeMessageMenus();
   });
   menu.append(replyButton);
@@ -642,10 +778,11 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
       if (!response.ok) throw new Error(result.error || "Could not update saved messages.");
       savedItems = result.saved;
       renderMessages();
+      renderSavedPanel();
     } catch (error) { addSystemMessage(error.message); }
   });
   menu.append(save);
-  if (id) {
+  if (id && ownMessage) {
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "delete-message";
@@ -661,10 +798,11 @@ function addMessage({ id, conversation, user, text, time, avatar, attachment, se
   }
   actions.append(menuButton, menu);
   bubble.append(actions);
-  box.append(bubble);
+  box.append(name, bubble, stamp);
   if (reactionRow) box.append(reactionRow);
   messagesBox.appendChild(box);
-  messagesBox.scrollTop = messagesBox.scrollHeight;   // auto-scroll to newest
+  if (stickToBottom) messagesBox.scrollTop = messagesBox.scrollHeight;
+  updateScrollLatest();
 }
 
 function messageKey(message) { return `${message.user}\n${message.time}\n${message.text}`; }
@@ -691,7 +829,26 @@ function renderMessages() {
   messagesBox.replaceChildren();
   const query = $("search-input").value.trim().toLocaleLowerCase();
   const visible = (showSavedOnly ? savedItems : allMessages).filter((message) => !query || `${message.user} ${message.text} ${message.attachment?.name || ""}`.toLocaleLowerCase().includes(query));
-  visible.forEach((message) => addMessage(message));
+  let lastDay = "";
+  const today = new Date();
+  const todayKey = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const yesterdayKey = todayKey - 86400000;
+  visible.forEach((message) => {
+    const stamp = new Date(message.time);
+    const dayKey = new Date(stamp.getFullYear(), stamp.getMonth(), stamp.getDate()).getTime();
+    const label = dayKey === todayKey ? "Today" : dayKey === yesterdayKey ? "Yesterday" : stamp.toLocaleDateString([], { month: "short", day: "numeric", year: stamp.getFullYear() === today.getFullYear() ? undefined : "numeric" });
+    const dayId = stamp.toDateString();
+    if (dayId !== lastDay) {
+      const chip = document.createElement("div");
+      chip.className = "message-day";
+      chip.textContent = label;
+      messagesBox.append(chip);
+      lastDay = dayId;
+    }
+    addMessage(message);
+  });
+  messagesBox.scrollTop = messagesBox.scrollHeight;
+  updateScrollLatest();
 }
 
 async function showAttachment(attachment, container) {
@@ -797,21 +954,25 @@ function playMessageSound() {
   } catch {}
 }
 let allMessages = [];
+let pendingSavedJumpId = "";
 function loadSavedMessages() {
   return fetch("/api/saved-messages", { headers: { Authorization: `Bearer ${authToken}` } }).then(async (response) => {
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Could not load saved messages.");
     savedItems = result;
     renderMessages();
+  renderSavedPanel();
   });
 }
 
 function addSystemMessage(text) {
+  const stickToBottom = nearMessagesBottom();
   const line = document.createElement("div");
   line.className = "system";
   line.textContent = text;
   messagesBox.appendChild(line);
-  messagesBox.scrollTop = messagesBox.scrollHeight;
+  if (stickToBottom) messagesBox.scrollTop = messagesBox.scrollHeight;
+  updateScrollLatest();
 }
 
 function createAvatar(name, url, className = "avatar") {
@@ -830,6 +991,30 @@ function createAvatar(name, url, className = "avatar") {
   return avatar;
 }
 
+function nearMessagesBottom() {
+  return messagesBox.scrollHeight - messagesBox.scrollTop - messagesBox.clientHeight < 90;
+}
+function updateScrollLatest() {
+  $("scroll-latest").classList.toggle("hidden", nearMessagesBottom());
+}
+function appendHighlightedText(element, value, query) {
+  const text = String(value || "");
+  if (!query) { element.textContent = text; return; }
+  const lowerText = text.toLocaleLowerCase();
+  const lowerQuery = query.toLocaleLowerCase();
+  let cursor = 0;
+  let matchAt = lowerText.indexOf(lowerQuery, cursor);
+  while (matchAt !== -1) {
+    element.append(document.createTextNode(text.slice(cursor, matchAt)));
+    const mark = document.createElement("mark");
+    mark.textContent = text.slice(matchAt, matchAt + query.length);
+    element.append(mark);
+    cursor = matchAt + query.length;
+    matchAt = lowerText.indexOf(lowerQuery, cursor);
+  }
+  element.append(document.createTextNode(text.slice(cursor)));
+}
+
 socket.on("conversation history", ({ conversation, messages, pinned }) => {
   currentConversation = conversation;
   allMessages = messages;
@@ -838,6 +1023,11 @@ socket.on("conversation history", ({ conversation, messages, pinned }) => {
   renderPinnedMessages();
   updateDetailsPanel();
   clearUnread();
+  if (pendingSavedJumpId) {
+    const savedId = pendingSavedJumpId;
+    pendingSavedJumpId = "";
+    requestAnimationFrame(() => document.querySelector(`[data-message-id="${CSS.escape(String(savedId))}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
+  }
 });
 socket.on("pinned messages", ({ conversation, messages }) => {
   if (conversation !== currentConversation) return;
@@ -1263,10 +1453,11 @@ window.addEventListener("keydown", (event) => {
   event.preventDefault();
   socket.emit("party-game direction", { dx: direction[0], dy: direction[1] });
 });
-$("games-nav-btn").addEventListener("click", () => openGamesSection());
+$("games-nav-btn").addEventListener("click", () => { closeRoomPicker(); openGamesSection(); });
 $("tic-tac-toe-btn").addEventListener("click", () => openGamesSection());
 $("games-back-btn").addEventListener("click", () => closeGamesSection());
 function openGamesSection() {
+  closeRoomPicker();
   $("chat").classList.add("games-open");
   $("conversation-view").classList.add("hidden");
   $("games-section").classList.remove("hidden");
@@ -1317,6 +1508,7 @@ socket.on("message deleted", ({ message, conversation, pinned }) => {
   if (conversation !== currentConversation) return;
   allMessages = allMessages.map((item) => item.id === message.id ? message : item);
   savedItems = savedItems.filter((item) => item.id !== message.id);
+  renderSavedPanel();
   pinnedItems = pinned;
   renderMessages();
   renderPinnedMessages();
@@ -1350,6 +1542,7 @@ document.querySelectorAll(".room-button").forEach((button) => {
     socket.emit("join room", currentConversation);
     clearUnread();
     sidebar.classList.remove("open");
+    closeRoomPicker();
   });
 });
 
@@ -1380,7 +1573,7 @@ async function loadGroups() {
         addButton.innerHTML = iconSvg("plus");
         addButton.title = `Add members to ${group.name}`;
         addButton.setAttribute("aria-label", `Add members to ${group.name}`);
-        addButton.addEventListener("click", () => showGroupMembersDialog(group));
+        addButton.addEventListener("click", () => { closeRoomPicker(); showGroupMembersDialog(group); });
         item.append(addButton);
       }
       nav.append(item);
@@ -1406,6 +1599,7 @@ function openGroup(group) {
   updateDetailsPanel();
   clearUnread();
   sidebar.classList.remove("open");
+  closeRoomPicker();
 }
 
 async function showGroupMembersDialog(group = null) {
@@ -1444,7 +1638,7 @@ async function showGroupMembersDialog(group = null) {
     $("group-status").textContent = "Select one or more people to add.";
   } catch (error) { $("group-status").textContent = error.message; }
 }
-$("create-group-btn").addEventListener("click", () => showGroupMembersDialog());
+$("create-group-btn").addEventListener("click", () => { closeRoomPicker(); showGroupMembersDialog(); });
 function openAddGroupMembersDialog() {
   const group = myGroups.find((item) => `group:${item.id}` === currentConversation);
   if (group?.creatorId === currentUserId) showGroupMembersDialog(group);
@@ -1476,20 +1670,142 @@ $("create-group-form").addEventListener("submit", async (event) => {
   finally { submit.disabled = false; }
 });
 
+function updateComposerState() {
+  $("send-btn").disabled = !(input.value.trim() || selectedFile);
+  input.style.height = "auto";
+  input.style.height = Math.min(input.scrollHeight, 120) + "px";
+}
+function updateAttachmentPreview() {
+  const preview = $("attachment-preview");
+  preview.classList.toggle("hidden", !selectedFile);
+  $("attachment-preview-name").textContent = selectedFile ? selectedFile.name : "";
+  $("file-btn").title = selectedFile ? selectedFile.name : "Attach a file";
+  $("file-btn").innerHTML = selectedFile ? iconSvg("check") : iconSvg("paperclip");
+  updateComposerState();
+}
+let toastTimer = null;
+function showToast(message, kind = "error") {
+  let toast = $("chat-toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "chat-toast";
+    toast.className = "chat-toast";
+    toast.setAttribute("role", "status");
+    document.body.append(toast);
+  }
+  toast.classList.toggle("is-error", kind === "error");
+  toast.textContent = message;
+  toast.classList.add("visible");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove("visible"), 3600);
+}
+function showErrorToast(message) { showToast(message, "error"); }
+function showVoiceFallbackToast() { showToast("Speech-to-text is not supported here. The mic will record an audio message instead.", "info"); }
+
 $("search-input").addEventListener("input", renderMessages);
+input.addEventListener("input", updateComposerState);
+input.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    $("message-form").requestSubmit();
+  }
+});
+updateComposerState();
 $("file-btn").addEventListener("click", () => $("file-input").click());
 $("file-input").addEventListener("change", () => {
   selectedFile = $("file-input").files[0] || null;
-  $("file-btn").innerHTML = selectedFile ? iconSvg("check") : iconSvg("plus");
-  $("file-btn").title = selectedFile ? selectedFile.name : "Attach a file";
+  updateAttachmentPreview();
+});
+$("attachment-remove").addEventListener("click", () => {
+  selectedFile = null;
+  $("file-input").value = "";
+  updateAttachmentPreview();
+});
+$("composer-more-btn").addEventListener("click", () => {
+  const popover = $("composer-popover");
+  const open = popover.classList.contains("hidden");
+  popover.classList.toggle("hidden", !open);
+  $("composer-more-btn").setAttribute("aria-expanded", String(open));
+});
+$("composer-popover").addEventListener("click", (event) => {
+  const action = event.target.closest("[data-composer-action]")?.dataset.composerAction;
+  if (!action) return;
+  $("composer-popover").classList.add("hidden");
+  $("composer-more-btn").setAttribute("aria-expanded", "false");
+  if (action === "aura") activateAuraShortcut();
+  if (action === "attach") $("file-btn").click();
+  if (action === "voice") voiceMessageButton.click();
+});
+$("mobile-actions-sheet").addEventListener("click", (event) => {
+  if (event.target === $("mobile-actions-sheet")) { $("mobile-actions-sheet").classList.add("hidden"); return; }
+  const action = event.target.closest("[data-mobile-action]")?.dataset.mobileAction;
+  if (!action) return;
+  $("mobile-actions-sheet").classList.add("hidden");
+  if (action === "saved") $("saved-btn").click();
+  if (action === "theme") $("theme-btn").click();
+  if (action === "profile") $("profile-btn").click();
+  if (action === "voice-call") {
+    if (currentDirectUser) $("voice-call-btn").click();
+    else showErrorToast("Open a direct conversation before starting a call.");
+  }
+  if (action === "video-call") {
+    if (currentDirectUser) $("video-call-btn").click();
+    else showErrorToast("Open a direct conversation before starting a call.");
+  }
+  if (action === "details") $("conversation-details-btn").click();
 });
 
+function closeSavedPanel() {
+  $("saved-modal").classList.add("hidden");
+  $("saved-btn").setAttribute("aria-pressed", "false");
+}
+function renderSavedPanel() {
+  const root = $("saved-messages-list");
+  root.replaceChildren();
+  if (!savedItems.length) {
+    const empty = document.createElement("p");
+    empty.className = "search-empty";
+    empty.textContent = "Messages you save will appear here.";
+    root.append(empty);
+    return;
+  }
+  [...savedItems].reverse().forEach((message) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "saved-message-row";
+    const title = document.createElement("strong");
+    title.textContent = message.user || "Saved message";
+    const excerpt = document.createElement("span");
+    excerpt.textContent = message.text || message.attachment?.name || "Shared an attachment";
+    const meta = document.createElement("small");
+    meta.textContent = `${message.conversation || "Chat"} · ${message.time ? new Date(message.time).toLocaleDateString() : ""}`;
+    row.append(title, excerpt, meta);
+    row.addEventListener("click", () => {
+      closeSavedPanel();
+      if (message.id && message.conversation !== currentConversation) {
+        $("search-input").value = "";
+        showSavedOnly = false;
+        pendingSavedJumpId = message.id;
+        openConversationResult(message.conversation);
+      } else if (message.id) {
+        $("search-input").value = "";
+        showSavedOnly = false;
+        renderMessages();
+        requestAnimationFrame(() => document.querySelector(`[data-message-id="${CSS.escape(String(message.id))}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
+      }
+    });
+    root.append(row);
+  });
+}
 $("saved-btn").addEventListener("click", () => {
-  showSavedOnly = !showSavedOnly;
-  $("saved-btn").setAttribute("aria-pressed", String(showSavedOnly));
-  $("saved-btn").replaceChildren(iconElement(showSavedOnly ? "left" : "star"), document.createTextNode(showSavedOnly ? "All messages" : "Saved"));
-  renderMessages();
+  renderSavedPanel();
+  $("saved-modal").classList.remove("hidden");
+  $("saved-btn").setAttribute("aria-pressed", "true");
 });
+$("saved-close").addEventListener("click", closeSavedPanel);
+$("saved-modal").addEventListener("click", (event) => { if (event.target === $("saved-modal")) closeSavedPanel(); });
+$("scroll-latest").addEventListener("click", () => messagesBox.scrollTo({ top: messagesBox.scrollHeight, behavior: "smooth" }));
+messagesBox.addEventListener("scroll", updateScrollLatest, { passive: true });
 
 let resumedSupabaseSession = false;
 async function resumeSupabaseSession() {
@@ -1615,7 +1931,11 @@ function updateProfilePanel() {
   buildAvatarGrid();
   $("settings-username").value = username || "";
   const profileButton = $("profile-btn");
-  profileButton.replaceChildren(createAvatar(username || currentProfile.name, currentProfile.avatar, "avatar profile-button-avatar"), document.createTextNode("Profile"));
+  const firstName = String(username || currentProfile.name || "Profile").trim().split(/\s+/)[0];
+  profileButton.replaceChildren(createAvatar(username || currentProfile.name, currentProfile.avatar, "avatar profile-button-avatar"), document.createElement("span"));
+  profileButton.lastElementChild.textContent = firstName;
+  profileButton.setAttribute("aria-label", "Profile and settings for " + firstName);
+  profileButton.title = "Profile and settings for " + firstName;
 }
 function buildAvatarGrid() {
   if (avatarGridBuilt) return;
@@ -1731,7 +2051,7 @@ socket.on("typing", ({ user, isTyping }) => {
   if (user === username) return;
   isTyping ? typers.add(user) : typers.delete(user);
   const names = [...typers];
-  typingBox.textContent = names.length
+  $("typing-users").textContent = names.length
     ? names.join(", ") + (names.length > 1 ? " are" : " is") + " typing..."
     : "";
 });
@@ -1844,20 +2164,29 @@ function markAppPageActive(page) {
 }
 function setAppPage(page) {
   markAppPageActive(page);
+  closeRoomPicker();
   sidebar.classList.remove("open");
+  chatScreen.classList.toggle("aura-page", page === "aura");
   if (page === "contacts") {
     closeGamesSection();
+    $("aura-study-section").classList.add("hidden");
     $("conversation-view").classList.add("hidden");
     $("contacts-section").classList.remove("hidden");
     loadContacts();
   } else if (page === "messages") {
     closeGamesSection();
+    $("aura-study-section").classList.add("hidden");
     $("contacts-section").classList.add("hidden");
     $("conversation-view").classList.remove("hidden");
+    updateDetailsPanel();
   } else if (page === "aura") {
-    setAppPage("messages");
-    markAppPageActive("aura");
-    openAuraPanel();
+    closeGamesSection();
+    closeAuraPanel();
+    $("contacts-section").classList.add("hidden");
+    $("conversation-view").classList.add("hidden");
+    $("aura-study-section").classList.remove("hidden");
+    setConversationHeading("aura", "Aura");
+    $("conversation-subtitle").textContent = "Your study helper";
   } else if (page === "settings") {
     setAppPage("messages");
     markAppPageActive("settings");
@@ -2077,28 +2406,95 @@ async function searchChatly(query) {
     if (sequence === globalSearchSequence) root.textContent = error.message;
   }
 }
+function renderCurrentRoomSearch(query) {
+  const root = $("current-room-search-results");
+  root.replaceChildren();
+  if (!query.trim()) {
+    const empty = document.createElement("p");
+    empty.className = "search-empty";
+    empty.textContent = "Type to find messages in this conversation.";
+    root.append(empty);
+    return;
+  }
+  const matches = allMessages.filter((message) => `${message.user} ${message.text || ""} ${message.attachment?.name || ""}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())).slice(-12).reverse();
+  if (!matches.length) {
+    const empty = document.createElement("p");
+    empty.className = "search-empty";
+    empty.textContent = "No matches in this conversation.";
+    root.append(empty);
+    return;
+  }
+  matches.forEach((message) => {
+    const result = document.createElement("button");
+    result.type = "button";
+    result.className = "search-result-row";
+    const sender = document.createElement("strong");
+    sender.textContent = message.user;
+    const excerpt = document.createElement("small");
+    excerpt.textContent = message.text || message.attachment?.name || "Shared an attachment";
+    result.append(sender, excerpt);
+    result.addEventListener("click", () => {
+      $("search-input").value = query;
+      renderMessages();
+      closeGlobalSearch();
+      const target = message.id && document.querySelector(`[data-message-id="${CSS.escape(String(message.id))}"]`);
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    root.append(result);
+  });
+}
 function openGlobalSearch() {
   $("global-search-modal").classList.remove("hidden");
+  renderCurrentRoomSearch($("global-search-input").value);
   $("global-search-input").focus();
 }
 function closeGlobalSearch() { $("global-search-modal").classList.add("hidden"); }
+function closeRoomPicker() {
+  $("room-picker").classList.add("hidden");
+  $("room-switcher-toggle").setAttribute("aria-expanded", "false");
+}
+$("room-switcher-toggle").addEventListener("click", (event) => {
+  event.stopPropagation();
+  const open = $("room-picker").classList.contains("hidden");
+  $("room-picker").classList.toggle("hidden", !open);
+  $("room-switcher-toggle").setAttribute("aria-expanded", String(open));
+});
+document.addEventListener("click", (event) => {
+  if (!event.target.closest("#room-picker, #room-switcher-toggle")) closeRoomPicker();
+});
 $("global-search-open").addEventListener("click", openGlobalSearch);
 $("sidebar-search-btn").addEventListener("click", openGlobalSearch);
 $("global-search-close").addEventListener("click", closeGlobalSearch);
 $("global-search-modal").addEventListener("click", (event) => { if (event.target === $("global-search-modal")) closeGlobalSearch(); });
 $("global-search-input").addEventListener("input", () => {
+  const query = $("global-search-input").value.trim();
+  $("search-input").value = query;
+  renderMessages();
+  renderCurrentRoomSearch(query);
   clearTimeout(globalSearchTimer);
-  globalSearchTimer = setTimeout(() => searchChatly($("global-search-input").value), 220);
+  globalSearchTimer = setTimeout(() => searchChatly(query), 220);
 });
 document.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
     openGlobalSearch();
   }
-  if (event.key === "Escape") closeGlobalSearch();
+  if (event.key === "Escape") {
+    closeGlobalSearch();
+    closeRoomPicker();
+    closeSavedPanel();
+    $("mobile-actions-sheet").classList.add("hidden");
+    $("composer-popover").classList.add("hidden");
+    $("composer-more-btn").setAttribute("aria-expanded", "false");
+  }
 });
 
 function updateDetailsPanel() {
+  if (chatScreen.classList.contains("aura-page")) {
+    setConversationHeading("aura", "Aura");
+    $("conversation-subtitle").textContent = "Your study helper";
+    return;
+  }
   const person = currentDirectUser;
   const group = currentConversation.startsWith("group:") ? myGroups.find((item) => `group:${item.id}` === currentConversation) : null;
   const name = person?.name || group?.name || currentConversation;
@@ -2176,15 +2572,37 @@ $("details-close").addEventListener("click", () => {
 });
 $("conversation-search-btn").addEventListener("click", () => $("search-input").focus());
 
-$("menu-btn").addEventListener("click", () => sidebar.classList.toggle("open"));
+$("menu-btn").addEventListener("click", () => $("mobile-actions-sheet").classList.remove("hidden"));
 messagesBox.addEventListener("click", () => sidebar.classList.remove("open"));
+document.addEventListener("click", (event) => {
+  if (!event.target.closest("#composer-popover, #composer-more-btn")) {
+    $("composer-popover").classList.add("hidden");
+    $("composer-more-btn").setAttribute("aria-expanded", "false");
+  }
+});
+
+function syncChatViewport() {
+  const viewport = window.visualViewport;
+  if (!viewport || window.innerWidth >= 900) {
+    document.documentElement.style.removeProperty("--app-height");
+    document.documentElement.style.removeProperty("--viewport-top");
+    return;
+  }
+  document.documentElement.style.setProperty("--app-height", viewport.height + "px");
+  document.documentElement.style.setProperty("--viewport-top", viewport.offsetTop + "px");
+}
+syncChatViewport();
+window.addEventListener("resize", syncChatViewport);
+window.visualViewport?.addEventListener("resize", syncChatViewport);
+window.visualViewport?.addEventListener("scroll", syncChatViewport);
+document.querySelectorAll("[data-composer-action]").forEach((button) => button.setAttribute("role", "menuitem"));
 
 // ----- 6. Emoji picker -----
 ["😀", "😂", "😍", "😎", "🥳", "😢", "👍", "🙏", "🔥", "❤️", "🎉", "👋"].forEach((emoji) => {
   const b = document.createElement("button");
   b.type = "button";
   b.textContent = emoji;
-  b.addEventListener("click", () => { input.value += emoji; input.focus(); });
+  b.addEventListener("click", () => { input.value += emoji; input.focus(); updateComposerState(); });
   emojiPanel.appendChild(b);
 });
 $("emoji-btn").addEventListener("click", () => emojiPanel.classList.toggle("hidden"));
@@ -2201,9 +2619,11 @@ function setTheme(theme) {
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
   });
+  const mobileThemeLabel = document.querySelector('[data-mobile-action="theme"] span');
+  if (mobileThemeLabel) mobileThemeLabel.textContent = resolved === "dark" ? "Light mode" : "Dark mode";
   try { localStorage.setItem("chatly-theme-v2", theme); } catch (e) {}
 }
-let saved = "light";
+let saved = "system";
 try { saved = localStorage.getItem("chatly-theme-v2") || saved; } catch (e) {}
 setTheme(saved);
 $("theme-btn").addEventListener("click", () => {

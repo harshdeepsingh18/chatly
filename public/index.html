@@ -6,6 +6,9 @@
   <meta name="theme-color" content="#f7f4ed">
   <meta name="description" content="Chatly is a friendly place to catch up with your people in real time.">
   <title>Chatly</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/logo.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -14,7 +17,7 @@
 <body>
 
   <!-- LOGIN SCREEN -->
-  <section id="login" class="screen">
+  <section id="login" class="screen hidden">
     <div class="login-shell">
       <div class="login-intro">
         <div class="brand-lockup">
@@ -62,82 +65,85 @@
   </section>
 
   <!-- CHAT SCREEN -->
-  <section id="chat" class="screen hidden">
+  <section id="chat" class="screen">
     <aside id="sidebar">
-      <div class="sidebar-brand"><strong>chatly</strong><span>MESSAGING, WITH ROOM TO BREATHE</span></div>
-      <nav class="primary-nav" aria-label="Main navigation">
-        <button type="button" class="primary-nav-button active" data-page="messages"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z"/></svg>Messages</button>
-        <button type="button" class="primary-nav-button" data-page="contacts"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M20 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg>Contacts</button>
-        <button type="button" class="primary-nav-button" data-page="aura"><svg class="lucide-icon aura-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 14 9.8l6.5 2.2-6.5 2.2-2 6.3-2-6.3L3.5 12l6.5-2.2 2-6.3Z"/><path d="m19 3 .8 2.2L22 6l-2.2.8L19 9l-.8-2.2L16 6l2.2-.8L19 3Z"/></svg>Aura</button>
-        <button type="button" class="primary-nav-button" data-page="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/><path d="m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.7a8 8 0 0 1-1.8 1l-.3 1.8h-2.8l-.3-1.8a8 8 0 0 1-1.8-1l-1.7.7-1.4-2.4L7.1 15a8 8 0 0 1 0-2l-1.4-1.1 1.4-2.4 1.7.7a8 8 0 0 1 1.8-1l.3-1.8h2.8l.3 1.8a8 8 0 0 1 1.8 1l1.7-.7 1.4 2.4-1.4 1.1a8 8 0 0 1-.1 2Z"/></svg>Settings</button>
-      </nav>
-      <div class="sidebar-section-heading"><h2>Chat</h2><div><button id="sidebar-search-btn" type="button" aria-label="Search Chatly" title="Search Chatly"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.6"/><path d="m16 16 4 4"/></svg></button><button id="create-group-btn" type="button" aria-label="Create a group" title="New group"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div></div>
-      <div class="conversation-filters" role="tablist" aria-label="Filter conversations">
-        <button type="button" class="active" data-inbox-filter="all" role="tab" aria-selected="true">All</button>
-        <button type="button" data-inbox-filter="unread" role="tab" aria-selected="false">Unread</button>
-        <button type="button" data-inbox-filter="groups" role="tab" aria-selected="false">Groups</button>
+      <div class="sidebar-sticky-header">
+        <div class="sidebar-brand"><strong aria-label="Chatly">c</strong></div>
+        <div class="sidebar-section-label">Navigation</div>
+        <nav class="primary-nav" aria-label="Main navigation">
+          <button type="button" class="primary-nav-button active" data-page="messages"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z"/></svg>Messages</button>
+          <button type="button" class="primary-nav-button" data-page="contacts"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M20 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg>Contacts</button>
+          <button type="button" class="primary-nav-button" data-page="aura"><svg class="lucide-icon aura-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 14 9.8l6.5 2.2-6.5 2.2-2 6.3-2-6.3L3.5 12l6.5-2.2 2-6.3Z"/><path d="m19 3 .8 2.2L22 6l-2.2.8L19 9l-.8-2.2L16 6l2.2-.8L19 3Z"/></svg>Aura</button>
+          <button type="button" class="primary-nav-button" data-page="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/><path d="m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.7a8 8 0 0 1-1.8 1l-.3 1.8h-2.8l-.3-1.8a8 8 0 0 1-1.8-1l-1.7.7-1.4-2.4L7.1 15a8 8 0 0 1 0-2l-1.4-1.1 1.4-2.4 1.7.7a8 8 0 0 1 1.8-1l.3-1.8h2.8l.3 1.8a8 8 0 0 1 1.8 1l1.7-.7 1.4 2.4-1.4 1.1a8 8 0 0 1-.1 2Z"/></svg>Settings</button>
+        </nav>
       </div>
-      <div id="conversation-list" class="conversation-list" aria-label="Conversations"></div>
-      <nav id="room-list" aria-label="Chat rooms">
-        <button type="button" class="room-button active" data-room="general"><svg class="lucide-icon room-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16M4 15h16M10 3 8 21m8-18-2 18"/></svg>General</button>
-        <button type="button" class="room-button" data-room="doubts"><svg class="lucide-icon room-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16M4 15h16M10 3 8 21m8-18-2 18"/></svg>Doubts</button>
-        <button type="button" class="room-button" data-room="notes"><svg class="lucide-icon room-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16M4 15h16M10 3 8 21m8-18-2 18"/></svg>Notes</button>
-      </nav>
-      <nav class="sidebar-features" aria-label="Chatly features">
-        <button id="games-nav-btn" class="games-nav-button" type="button" aria-current="false">
-          <span aria-hidden="true"><svg class="lucide-icon" viewBox="0 0 24 24"><path d="M6 12h4m-2-2v4m7-1h.01M18 11h.01"/><path d="M7 6h10a4 4 0 0 1 3.9 3.1l1.1 5.1a3 3 0 0 1-5 2.8l-2-1.5h-4l-2 1.5a3 3 0 0 1-5-2.8l1.1-5.1A4 4 0 0 1 9 6Z"/></svg></span><span>Games</span><small>5</small>
-        </button>
-      </nav>
-      <div class="group-heading"><h2>GROUPS</h2></div>
-      <nav id="group-list" class="room-list" aria-label="Your group chats"></nav>
-      <h2 class="online-heading">PEOPLE <span id="online-count">0</span></h2>
-      <ul id="user-list"></ul>
-      <div class="sidebar-bottom">
+      <div class="legacy-sidebar-data hidden" aria-hidden="true">
+        <button id="sidebar-search-btn" type="button" aria-label="Search Chatly"></button>
+        <div class="conversation-filters" role="tablist" aria-label="Filter conversations">
+          <button type="button" class="active" data-inbox-filter="all" role="tab" aria-selected="true">All</button>
+          <button type="button" data-inbox-filter="unread" role="tab" aria-selected="false">Unread</button>
+          <button type="button" data-inbox-filter="groups" role="tab" aria-selected="false">Groups</button>
+        </div>
+        <div id="conversation-list" class="conversation-list" aria-label="Conversations"></div>
+        <h2 class="online-heading">PEOPLE <span id="online-count">0</span></h2><ul id="user-list"></ul>
         <button id="focus-toggle" type="button" aria-pressed="false"><span class="focus-dot"></span><span><strong>Focus</strong><small id="focus-label">Quiet your notifications</small></span></button>
       </div>
     </aside>
 
     <main>
       <header>
-        <button id="menu-btn" aria-label="Show online users"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
-        <div class="title">
-          <strong class="wordmark">chatly</strong>
-          <small id="me"></small>
+        <button id="menu-btn" type="button" aria-label="Open profile and quick actions"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></button>
+        <button id="room-switcher-toggle" class="room-switcher-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="room-picker">
+          <span id="conversation-avatar" class="room-heading-avatar" aria-hidden="true"><svg class="lucide-icon" viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3 8 21m8-18-2 18"/></svg></span>
+          <span class="room-heading-copy"><strong id="conversation-name"><svg class="lucide-icon" viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3 8 21m8-18-2 18"/></svg>general</strong><small id="conversation-subtitle">Community room</small></span>
+          <svg class="room-switcher-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+        </button>
+        <div id="room-picker" class="room-picker hidden" role="menu" aria-label="Switch conversation">
+          <div class="room-picker-heading"><strong>Channels</strong><button id="create-group-btn" type="button" aria-label="Create a group" title="New group"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div>
+          <nav id="room-list" class="room-list" aria-label="Chat rooms">
+            <button type="button" class="room-button active" data-room="general"><svg class="lucide-icon room-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16M4 15h16M10 3 8 21m8-18-2 18"/></svg>General</button>
+            <button type="button" class="room-button" data-room="doubts"><svg class="lucide-icon room-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16M4 15h16M10 3 8 21m8-18-2 18"/></svg>Doubts</button>
+            <button type="button" class="room-button" data-room="notes"><svg class="lucide-icon room-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16M4 15h16M10 3 8 21m8-18-2 18"/></svg>Notes</button>
+          </nav>
+          <div class="room-picker-heading room-picker-groups-heading"><strong>Groups</strong></div>
+          <nav id="group-list" class="room-list" aria-label="Your group chats"></nav>
+          <button id="games-nav-btn" class="games-nav-button" type="button" aria-current="false"><svg class="lucide-icon" viewBox="0 0 24 24"><path d="M6 12h4m-2-2v4m7-1h.01M18 11h.01"/><path d="M7 6h10a4 4 0 0 1 3.9 3.1l1.1 5.1a3 3 0 0 1-5 2.8l-2-1.5h-4l-2 1.5a3 3 0 0 1-5-2.8l1.1-5.1A4 4 0 0 1 9 6Z"/></svg>Games</button>
         </div>
-        <button id="global-search-open" type="button" aria-label="Search messages, people, files and links" title="Search Chatly"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.6"/><path d="m16 16 4 4"/></svg></button>
-        <button id="saved-btn" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.4l6.1-.9L12 3Z"/></svg> Saved</button>
-        <button id="theme-btn" aria-label="Switch light or dark mode"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A8.8 8.8 0 0 1 11.2 3a8.8 8.8 0 1 0 9.8 9.8Z"/></svg></button>
-        <button id="profile-btn" type="button" aria-label="Profile and settings" title="Profile and settings"><svg class="lucide-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="8" r="5"/></svg>Profile</button>
-        <button id="details-toggle" type="button" aria-label="Show contact details" title="Contact details"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 10.2v5.1M12 7.8h.01"/></svg></button>
+        <span id="me" class="hidden" aria-hidden="true"></span>
+        <div class="header-actions">
+          <button id="global-search-open" type="button" aria-label="Search messages, people, files and links" title="Search Chatly"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.6"/><path d="m16 16 4 4"/></svg></button>
+          <button id="saved-btn" type="button" aria-label="Saved messages" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.4l6.1-.9L12 3Z"/></svg><span>Saved</span></button>
+          <button id="theme-btn" type="button" aria-label="Switch light or dark mode"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A8.8 8.8 0 0 1 11.2 3a8.8 8.8 0 1 0 9.8 9.8Z"/></svg></button>
+          <button id="profile-btn" type="button" aria-label="Profile and settings" title="Profile and settings"><svg class="lucide-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="8" r="5"/></svg><span>Profile</span></button>
+          <button id="details-toggle" type="button" aria-label="Show contact details" title="Contact details"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 10.2v5.1M12 7.8h.01"/></svg></button>
+          <div id="call-controls" class="hidden" aria-label="Call options">
+            <button id="tic-tac-toe-btn" type="button" aria-label="Open games" title="Open games"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 8h9a4.5 4.5 0 0 1 4.3 5.8l-.8 2.6a2.2 2.2 0 0 1-3.6 1l-2.1-1.8H9.7l-2.1 1.8a2.2 2.2 0 0 1-3.6-1l-.8-2.6A4.5 4.5 0 0 1 7.5 8Z"/><path d="M8 10.5v4m-2-2h4m7-1h.01M18 14h.01"/></svg><span>Games</span></button>
+            <button id="voice-call-btn" type="button" aria-label="Start voice call" title="Voice call"><svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2A19.8 19.8 0 0 1 3.1 5.18 2 2 0 0 1 5.08 3h3a2 2 0 0 1 2 1.72c.12.9.3 1.78.54 2.62a2 2 0 0 1-.46 2.1L9 9.91a16 16 0 0 0 6.09 6.09l.47-.47a2 2 0 0 1 2.1-.46c.84.24 1.72.42 2.62.54A2 2 0 0 1 22 16.92Z"/></svg></button>
+            <button id="video-call-btn" type="button" aria-label="Start video call" title="Video call"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="15" height="12" rx="2"/><path d="m18 9 4-3v12l-4-3"/></svg></button>
+          </div>
+          <div class="conversation-tools">
+            <button id="add-group-members-header" class="hidden" type="button" aria-label="Add members to this group" title="Add members"><svg class="lucide-icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+            <input id="search-input" type="search" placeholder="Search" aria-label="Search messages">
+            <button id="conversation-search-btn" type="button" aria-label="Search conversation" title="Search"><svg class="lucide-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
+            <button id="conversation-details-btn" type="button" aria-label="Show conversation details" title="Details"><svg class="lucide-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.6V20a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.6-1H4a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 1 1.6-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 1 1-1.6V4a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V10c0 .7.4 1.4 1 1.6H20a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.6 1Z"/></svg></button>
+          </div>
+        </div>
       </header>
 
       <div id="conversation-view">
-        <div id="conversation-title">
-          <div class="conversation-identity">
-            <svg id="conversation-avatar" class="lucide-icon conversation-room-avatar" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16M4 15h16M10 3 8 21m8-18-2 18"/></svg>
-            <div><strong id="conversation-name"><svg class="lucide-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16M4 15h16M10 3 8 21m8-18-2 18"/></svg>general</strong><small id="conversation-subtitle">Community room</small></div>
-          </div>
-          <div id="call-controls" class="hidden" aria-label="Call options">
-            <button id="tic-tac-toe-btn" type="button" aria-label="Open games" title="Open games">
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7.5 8h9a4.5 4.5 0 0 1 4.3 5.8l-.8 2.6a2.2 2.2 0 0 1-3.6 1l-2.1-1.8H9.7l-2.1 1.8a2.2 2.2 0 0 1-3.6-1l-.8-2.6A4.5 4.5 0 0 1 7.5 8Z"></path><path d="M8 10.5v4m-2-2h4m7-1h.01M18 14h.01"></path></svg>
-              <span>Games</span>
-            </button>
-            <button id="voice-call-btn" type="button" aria-label="Start voice call" title="Voice call"><svg class="lucide-icon" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2A19.8 19.8 0 0 1 3.1 5.18 2 2 0 0 1 5.08 3h3a2 2 0 0 1 2 1.72c.12.9.3 1.78.54 2.62a2 2 0 0 1-.46 2.1L9 9.91a16 16 0 0 0 6.09 6.09l.47-.47a2 2 0 0 1 2.1-.46c.84.24 1.72.42 2.62.54A2 2 0 0 1 22 16.92Z"></path></svg></button>
-            <button id="video-call-btn" type="button" aria-label="Start video call" title="Video call"><svg class="lucide-icon" viewBox="0 0 24 24"><rect x="3" y="6" width="15" height="12" rx="2"></rect><path d="m18 9 4-3v12l-4-3"></path></svg></button>
-          </div>
-          <div class="conversation-tools">
-            <button id="add-group-members-header" class="hidden" type="button" aria-label="Add members to this group" title="Add members"><svg class="lucide-icon" viewBox="0 0 24 24"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg> Add members</button>
-            <input id="search-input" type="search" placeholder="Search" aria-label="Search messages">
-            <button id="conversation-search-btn" type="button" aria-label="Search conversation" title="Search"><svg class="lucide-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></button>
-            <button id="conversation-details-btn" type="button" aria-label="Show conversation details" title="Details"><svg class="lucide-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.6V20a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.6-1H4a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 0 1-1.6V4a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V10c0 .7.4 1.4 1 1.6H20a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.6 1Z"></path></svg></button>
-          </div>
-        </div>
         <div id="pinned-messages" class="hidden" aria-label="Pinned messages"></div>
         <div id="messages" aria-live="polite"></div>
-        <div id="typing"></div>
+        <button id="scroll-latest" class="scroll-latest hidden" type="button" aria-label="Scroll to latest messages"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg> Latest</button>
+        <div id="typing"><span id="typing-users"></span><span id="aura-thinking-indicator" class="hidden"><i aria-hidden="true"></i><i aria-hidden="true"></i><i aria-hidden="true"></i> Aura is thinking</span></div>
 
         <form id="message-form">
           <div id="emoji-panel" class="hidden"></div>
+          <div id="composer-popover" class="composer-popover hidden" role="menu" aria-label="More message actions">
+            <button type="button" data-composer-action="aura"><svg class="lucide-icon aura-icon" viewBox="0 0 24 24"><path d="m12 3 2 6 6 3-6 2-2 6-2-6-6-2 6-3 2-6Z"/></svg>Ask Aura</button>
+            <button type="button" data-composer-action="attach"><svg class="lucide-icon" viewBox="0 0 24 24"><path d="m21.4 11.1-9.2 9.1a5.5 5.5 0 0 1-7.8-7.8l9.2-9.2a3.5 3.5 0 0 1 5 5l-9.2 9.2a2 2 0 0 1-2.8-2.8l7.7-7.7"/></svg>Attach file</button>
+            <button type="button" data-composer-action="voice"><svg class="lucide-icon" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2m-7 9v3m-4 0h8"/></svg>Voice input</button>
+          </div>
+          <div id="attachment-preview" class="attachment-preview hidden" aria-live="polite"><span id="attachment-preview-name"></span><button id="attachment-remove" type="button" aria-label="Remove attachment"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m18 6-12 12M6 6l12 12"/></svg></button></div>
           <section id="aura-panel" class="aura-panel hidden" aria-label="Aura assistant" aria-modal="false">
             <div class="aura-panel-heading">
               <div><strong><svg class="lucide-icon aura-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 14 9.8l6.5 2.2-6.5 2.2-2 6.3-2-6.3L3.5 12l6.5-2.2 2-6.3Z"/><path d="m19 3 .8 2.2L22 6l-2.2.8L19 9l-.8-2.2L16 6l2.2-.8L19 3Z"/></svg> Aura</strong><small>Your AI assistant in Chatly</small></div>
@@ -157,6 +163,7 @@
             </div>
           </section>
           <button type="button" id="file-btn" aria-label="Attach a file"><svg class="lucide-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21.44 11.05 12.25 20.24a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l7.72-7.73"></path></svg></button>
+          <button type="button" id="composer-more-btn" aria-label="More message actions" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
           <button type="button" id="aura-shortcut-btn" title="Open Aura AI tools" aria-label="Open Aura AI tools">
             <svg class="lucide-icon aura-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 14 9.8l6.5 2.2-6.5 2.2-2 6.3-2-6.3L3.5 12l6.5-2.2 2-6.3Z"/><path d="m19 3 .8 2.2L22 6l-2.2.8L19 9l-.8-2.2L16 6l2.2-.8L19 3Z"/></svg>
             <span>Aura</span>
@@ -166,7 +173,7 @@
             <svg class="voice-mic-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2m-7 9v3m-4 0h8"/></svg>
           </button>
           <button type="button" id="emoji-btn" aria-label="Add emoji"><svg class="lucide-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><path d="M9 9h.01"></path><path d="M15 9h.01"></path></svg></button>
-          <input id="message-input" type="text" placeholder="Message, /ai summarize, or @aura ask" autocomplete="off" aria-label="Message or ask Aura; try /ai summarize, translate, reply, or explain">
+          <textarea id="message-input" rows="1" placeholder="Message, /ai summarize, or @aura ask" autocomplete="off" aria-label="Message or ask Aura; try /ai summarize, translate, reply, or explain"></textarea>
           <button type="submit" id="send-btn" aria-label="Send"><svg class="lucide-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button>
         </form>
       </div>
@@ -174,6 +181,11 @@
         <div class="editorial-page-heading"><p class="eyebrow">YOUR PEOPLE</p><h1 id="contacts-title">Contacts</h1><p>People you can reach on Chatly.</p></div>
         <label class="contacts-search"><span aria-hidden="true"><svg class="lucide-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></span><input id="contacts-filter" type="search" placeholder="Find a person" aria-label="Find a contact"></label>
         <div id="contacts-list" class="contacts-list" aria-live="polite"></div>
+      </section>
+      <section id="aura-study-section" class="aura-study-section hidden" aria-labelledby="aura-study-title">
+        <div class="aura-study-heading"><span class="aura-study-mark"><svg class="lucide-icon aura-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 14 9.8l6.5 2.2-6.5 2.2-2 6.3-2-6.3L3.5 12l6.5-2.2 2-6.3Z"/><path d="m19 3 .8 2.2L22 6l-2.2.8L19 9l-.8-2.2L16 6l2.2-.8L19 3Z"/></svg></span><div><p class="eyebrow">YOUR STUDY HELPER</p><h1 id="aura-study-title">Ask Aura</h1><p>Work through a question, concept, or study plan.</p></div></div>
+        <div id="aura-study-messages" class="aura-study-messages" role="log" aria-live="polite" aria-label="Aura study conversation"><div class="aura-study-welcome"><strong>What are you studying today?</strong><span>Ask a question and Aura will help you reason it through.</span></div></div>
+        <form id="aura-study-form" class="aura-study-form"><textarea id="aura-study-input" rows="1" maxlength="1000" placeholder="Ask Aura a study question…" aria-label="Ask Aura a study question"></textarea><button id="aura-study-send" type="submit" aria-label="Send to Aura" disabled><svg class="lucide-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button></form>
       </section>
       <section id="games-section" class="games-section hidden" aria-labelledby="games-title">
         <div class="games-page-heading">
@@ -217,11 +229,35 @@
     </aside>
   </section>
 
+  <div id="mobile-actions-sheet" class="mobile-actions-backdrop hidden" role="presentation">
+    <section class="mobile-actions-sheet" role="dialog" aria-modal="true" aria-labelledby="mobile-actions-title">
+      <div class="mobile-actions-handle" aria-hidden="true"></div>
+      <h2 id="mobile-actions-title">Quick actions</h2>
+      <button type="button" data-mobile-action="saved"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.4l6.1-.9L12 3Z"/></svg>Saved messages</button>
+      <button type="button" data-mobile-action="theme"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A8.8 8.8 0 0 1 11.2 3a8.8 8.8 0 1 0 9.8 9.8Z"/></svg><span>Dark mode</span></button>
+      <button type="button" data-mobile-action="profile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="8" r="5"/></svg>Profile and settings</button>
+      <button type="button" data-mobile-action="voice-call"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2A19.8 19.8 0 0 1 3.1 5.18 2 2 0 0 1 5.08 3h3a2 2 0 0 1 2 1.72"/></svg>Start voice call</button>
+      <button type="button" data-mobile-action="video-call"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="15" height="12" rx="2"/><path d="m18 9 4-3v12l-4-3"/></svg>Start video call</button>
+      <button type="button" data-mobile-action="details"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 10v5m0-8h.01"/></svg>Conversation details</button>
+    </section>
+  </div>
+
   <section id="global-search-modal" class="global-search-modal hidden" role="dialog" aria-modal="true" aria-labelledby="global-search-title">
     <div class="global-search-card">
       <div class="global-search-heading"><div><p class="eyebrow">CHATLY SEARCH</p><h2 id="global-search-title">Find a conversation detail</h2></div><button id="global-search-close" type="button" aria-label="Close search"><svg class="lucide-icon" viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></div>
       <label class="global-search-field"><span aria-hidden="true"><svg class="lucide-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></span><input id="global-search-input" type="search" placeholder="Search messages, people, files, links…" autocomplete="off"></label>
+      <section id="current-room-search" class="current-room-search" aria-label="Matches in this conversation">
+        <h3>This conversation</h3>
+        <div id="current-room-search-results"><p class="search-empty">Type to find messages in this conversation.</p></div>
+      </section>
       <div id="global-search-results" class="global-search-results" aria-live="polite"><p class="search-empty">Search across your conversations and contacts.</p></div>
+    </div>
+  </section>
+
+  <section id="saved-modal" class="global-search-modal hidden" role="dialog" aria-modal="true" aria-labelledby="saved-title">
+    <div class="global-search-card saved-card">
+      <div class="global-search-heading"><div><p class="eyebrow">YOUR LIBRARY</p><h2 id="saved-title">Saved messages</h2></div><button id="saved-close" type="button" aria-label="Close saved messages"><svg class="lucide-icon" viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></div>
+      <div id="saved-messages-list" class="saved-messages-list" aria-live="polite"></div>
     </div>
   </section>
 
