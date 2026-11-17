@@ -6,7 +6,7 @@ let avatarGridBuilt = false;
 let authToken = "";
 let savedItems = [];
 let showSavedOnly = false;
-let currentConversation = "general";
+let currentConversation = "";
 let currentDirectUser = null;
 let ticTacToeState = null;
 let partyGameState = null;
@@ -18,6 +18,7 @@ let pinnedItems = [];
 let onlineUserCache = [];
 let myGroups = [];
 let contactsCache = [];
+let peoplePageMode = "search";
 let conversationCache = [];
 let activeInboxFilter = "all";
 const unreadByConversation = new Map();
@@ -29,6 +30,9 @@ let focusUntil = 0;
 try { focusUntil = Number(localStorage.getItem("chatly-focus-until") || 0); } catch {}
 let editingGroupId = null;
 let unreadCount = 0;
+let notificationUnreadCount = 0;
+let notificationItems = [];
+let activePublicProfile = null;
 const titleBase = "Chatly";
 const attachmentUrls = new Map();
 let selectedFile = null;
@@ -135,11 +139,14 @@ function showDemoConversation() {
 // ----- 1. Authenticated entry -----
 socket.on("connect", () => {
   socket.emit("user joined");
-  socket.emit("join room", currentConversation);
+  if (currentConversation && !currentConversation.startsWith("dm:") && !currentConversation.startsWith("group:")) socket.emit("join room", currentConversation);
   $("me").textContent = "You are " + username;
   loginScreen.classList.add("hidden");
   usernameScreen.classList.add("hidden");
   chatScreen.classList.remove("hidden");
+  $("messages-empty").classList.toggle("hidden", Boolean(currentConversation));
+  $("message-form").classList.toggle("hidden", !currentConversation);
+  loadConversations();
   input.focus();
 });
 socket.on("connect_error", (error) => {
@@ -1017,6 +1024,8 @@ function appendHighlightedText(element, value, query) {
 
 socket.on("conversation history", ({ conversation, messages, pinned }) => {
   currentConversation = conversation;
+  $("messages-empty").classList.add("hidden");
+  $("message-form").classList.remove("hidden");
   allMessages = messages;
   pinnedItems = pinned;
   renderMessages();
@@ -1874,6 +1883,8 @@ function resumeAuthSession() {
 }
 async function enterChat() {
   await loadGroups();
+  await loadConversations();
+  await loadNotifications();
   try { await loadSavedMessages(); } catch (error) { $("username-status").textContent = error.message; }
   socket.auth = { token: "cookie-session" };
   if (!socket.connected) socket.connect();
@@ -2271,8 +2282,8 @@ let peopleSearchTimer;
 function renderContacts(people = []) {
   const list = $("contacts-list"); list.replaceChildren();
   const query = $("contacts-filter").value.trim();
-  if (!query) { const hint = document.createElement("p"); hint.className = "contacts-empty"; hint.textContent = "Search by username to find people on Chatly."; list.append(hint); return; }
-  if (!people.length) { const empty = document.createElement("p"); empty.className = "contacts-empty"; empty.textContent = "No Chatly users found."; list.append(empty); return; }
+  if (peoplePageMode === "search" && !query) { const hint = document.createElement("p"); hint.className = "contacts-empty"; hint.textContent = "Search by username to find people on Chatly."; list.append(hint); return; }
+  if (!people.length) { const empty = document.createElement("p"); empty.className = "contacts-empty"; empty.textContent = peoplePageMode === "search" ? "No Chatly users found." : peoplePageMode === "following" ? "You aren’t following anyone yet." : "You don’t have followers yet."; list.append(empty); return; }
   for (const person of people) {
     const card = document.createElement("article"); card.className = "people-result-card";
     card.append(createAvatar(person.displayName, person.profilePhotoUrl, "avatar contact-avatar"));
@@ -2280,13 +2291,17 @@ function renderContacts(people = []) {
     const name = document.createElement("strong"); name.textContent = person.displayName;
     const handle = document.createElement("span"); handle.textContent = `@${person.username}`;
     const bio = document.createElement("small"); bio.textContent = person.bio || "Chatly member";
-    info.append(name, handle, bio); info.addEventListener("click", () => openPublicProfile(person.username));
-    const message = document.createElement("button"); message.type = "button"; message.className = "people-message-button"; message.textContent = "Message";
-    message.addEventListener("click", () => startDirectConversation(person)); card.append(info, message); list.append(card);
+    const followers = document.createElement("small"); followers.textContent = `${person.followersCount || 0} followers`;
+    info.append(name, handle, bio, followers); info.addEventListener("click", () => openPublicProfile(person.username));
+    const actions = document.createElement("span"); actions.className = "people-result-actions";
+    const follow = document.createElement("button"); follow.type = "button"; follow.className = "follow-button" + (person.isFollowing ? " is-following" : ""); follow.textContent = person.isFollowing ? "Following" : "Follow";
+    follow.addEventListener("click", () => toggleFollow(person, follow)); actions.append(follow);
+    if (person.isFollowing) { const message = document.createElement("button"); message.type = "button"; message.className = "people-message-button"; message.textContent = "Message"; message.addEventListener("click", () => startDirectConversation(person)); actions.append(message); }
+    card.append(info, actions); list.append(card);
   }
 }
 async function loadContacts() {
-  if (!authToken) return;
+  if (!authToken || peoplePageMode !== "search") return;
   const query = $("contacts-filter").value.trim(), sequence = ++peopleSearchSequence;
   if (query.replace(/^@/, "").length < 2) { renderContacts([]); return; }
   $("contacts-list").textContent = "Searching…";
@@ -2296,23 +2311,115 @@ async function loadContacts() {
     if (sequence === peopleSearchSequence) renderContacts(result.users || []);
   } catch (error) { if (sequence === peopleSearchSequence) $("contacts-list").textContent = error.message; }
 }
+async function loadPeopleDirectory(kind) {
+  if (!authToken) return;
+  const sequence = ++peopleSearchSequence; $("contacts-list").textContent = "Loading people…";
+  try { const response = await fetch(`/api/people/${kind}`, { credentials: "same-origin", headers: { Authorization: `Bearer ${authToken}` } }); const result = await response.json(); if (!response.ok) throw new Error(result.error || "Could not load people."); if (sequence === peopleSearchSequence) renderContacts(result.people || []); }
+  catch (error) { if (sequence === peopleSearchSequence) $("contacts-list").textContent = error.message; }
+}
 async function openPublicProfile(usernameValue) {
   try {
     const response = await fetch(`/api/users/${encodeURIComponent(usernameValue)}`, { credentials: "same-origin", headers: { Authorization: `Bearer ${authToken}` } });
     const result = await response.json(); if (!response.ok) throw new Error(result.error || "Could not load this profile.");
-    const profile = result.profile; $("public-profile-name").textContent = profile.displayName; $("public-profile-username").textContent = `@${profile.username}`; $("public-profile-bio").textContent = profile.bio || "";
+    const profile = result.profile; activePublicProfile = profile; $("public-profile-name").textContent = profile.displayName; $("public-profile-username").textContent = `@${profile.username}`; $("public-profile-bio").textContent = profile.bio || "";
     const photo = $("public-profile-photo"); photo.classList.toggle("hidden", !profile.profilePhotoUrl); $("public-profile-placeholder").classList.toggle("hidden", Boolean(profile.profilePhotoUrl)); if (profile.profilePhotoUrl) photo.src = profile.profilePhotoUrl;
+    $("public-profile-followers").textContent = profile.followersCount || 0; $("public-profile-following").textContent = profile.followingCount || 0;
+    const followButton = $("public-profile-follow"); followButton.textContent = profile.isFollowing ? "Following" : "Follow"; followButton.classList.toggle("is-following", Boolean(profile.isFollowing)); followButton.onclick = () => toggleFollow(profile, followButton, true);
+    $("public-profile-follow-hint").textContent = profile.isFollowing ? "You’re following this person. You can message them." : `Follow @${profile.username} to start a conversation.`;
+    $("public-profile-message").classList.toggle("hidden", !profile.isFollowing);
     $("public-profile-message").onclick = () => { $("public-profile-modal").classList.add("hidden"); startDirectConversation(profile); };
     $("public-profile-modal").classList.remove("hidden");
   } catch (error) { showErrorToast(error.message); }
 }
+async function toggleFollow(person, button, updateModal = false) {
+  const wasFollowing = Boolean(person.isFollowing); button.disabled = true;
+  try {
+    const response = await fetch(`/api/users/${encodeURIComponent(person.username)}/follow`, { method: wasFollowing ? "DELETE" : "POST", credentials: "same-origin", headers: { Authorization: `Bearer ${authToken}` } });
+    const result = await response.json(); if (!response.ok) throw new Error(result.error || "Could not update following.");
+    Object.assign(person, result.profile); person.isFollowing = result.following;
+    if (updateModal && activePublicProfile) {
+      Object.assign(activePublicProfile, result.profile); activePublicProfile.isFollowing = result.following;
+      $("public-profile-followers").textContent = result.profile.followersCount || 0; $("public-profile-following").textContent = result.profile.followingCount || 0;
+      $("public-profile-follow-hint").textContent = result.following ? "You’re following this person. You can message them." : `Follow @${person.username} to start a conversation.`;
+      $("public-profile-message").classList.toggle("hidden", !result.following);
+    }
+    button.textContent = result.following ? "Following" : "Follow"; button.classList.toggle("is-following", result.following);
+    if (!$("contacts-section").classList.contains("hidden")) { if (peoplePageMode === "search") loadContacts(); else loadPeopleDirectory(peoplePageMode); }
+  } catch (error) { showErrorToast(error.message); }
+  finally { button.disabled = false; }
+}
 async function startDirectConversation(person) {
+  if (!person.isFollowing) { showErrorToast(`Follow @${person.username} to start a conversation.`); return; }
   try {
     const response = await fetch("/api/conversations/direct", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ username: person.username }) });
     const result = await response.json(); if (!response.ok) throw new Error(result.error || "Could not open that conversation.");
     setAppPage("messages"); if (!socket.connected) socket.connect(); socket.emit("open direct", result.userId); sidebar.classList.remove("open");
   } catch (error) { showErrorToast(error.message); }
 }
+function setNotificationCount(count) {
+  notificationUnreadCount = Math.max(0, Number(count) || 0);
+  $("notification-dot").classList.toggle("hidden", notificationUnreadCount === 0);
+  $("notification-dot").setAttribute("aria-label", `${notificationUnreadCount} unread notifications`);
+  $("notifications-unread-label").textContent = notificationUnreadCount ? `${notificationUnreadCount} unread` : "You’re all caught up.";
+  renderNotifications();
+}
+function relativeTime(timestamp) {
+  const seconds = Math.max(0, Math.floor((Date.now() - Number(timestamp)) / 1000));
+  if (seconds < 60) return "Just now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} hr ago`;
+  if (seconds < 172800) return "Yesterday";
+  return new Date(timestamp).toLocaleDateString([], { month: "short", day: "numeric" });
+}
+function renderNotifications() {
+  const list = $("notifications-list"); if (!list) return; list.replaceChildren();
+  $("notifications-read-all").classList.toggle("hidden", !notificationUnreadCount);
+  if (!notificationItems.length) { const empty = document.createElement("p"); empty.className = "notifications-empty"; empty.textContent = "No notifications yet."; list.append(empty); return; }
+  for (const notification of notificationItems) {
+    const row = document.createElement("button"); row.type = "button"; row.className = "notification-row" + (notification.read ? "" : " is-unread");
+    row.append(createAvatar(notification.actor.displayName, notification.actor.profilePhotoUrl, "avatar notification-avatar"));
+    const copy = document.createElement("span"); copy.className = "notification-copy";
+    const message = document.createElement("strong"); message.textContent = notification.message;
+    const handle = document.createElement("small"); handle.textContent = `@${notification.actor.username} · ${relativeTime(notification.createdAt)}`;
+    copy.append(message, handle); row.append(copy);
+    if (!notification.read) { const dot = document.createElement("span"); dot.className = "notification-unread-dot"; dot.setAttribute("aria-label", "Unread"); row.append(dot); }
+    row.addEventListener("click", async () => {
+      if (!notification.read) await markNotificationRead(notification.id);
+      $("notifications-panel").classList.add("hidden"); $("notifications-toggle").setAttribute("aria-expanded", "false");
+      if (notification.type === "message") startDirectConversation({ username: notification.actor.username, isFollowing: true });
+      else openPublicProfile(notification.actor.username);
+    });
+    list.append(row);
+  }
+}
+async function loadNotifications() {
+  if (!authToken) return;
+  try { const response = await fetch("/api/notifications", { credentials: "same-origin", headers: { Authorization: `Bearer ${authToken}` } }); const result = await response.json(); if (!response.ok) throw new Error(result.error || "Could not load notifications."); notificationItems = result.notifications || []; setNotificationCount(result.unreadCount); }
+  catch (error) { $("notifications-list").textContent = error.message; }
+}
+async function markNotificationRead(id) {
+  try { const response = await fetch(`/api/notifications/${encodeURIComponent(id)}/read`, { method: "PATCH", credentials: "same-origin", headers: { Authorization: `Bearer ${authToken}` } }); const result = await response.json(); if (!response.ok) throw new Error(result.error || "Could not update notification."); notificationItems = notificationItems.map((item) => item.id === id ? { ...item, read: true } : item); setNotificationCount(result.unreadCount); }
+  catch (error) { showErrorToast(error.message); }
+}
+$("notifications-toggle").addEventListener("click", async () => {
+  const panel = $("notifications-panel"), open = panel.classList.contains("hidden");
+  panel.classList.toggle("hidden", !open); $("notifications-toggle").setAttribute("aria-expanded", String(open));
+  if (open) await loadNotifications();
+});
+document.addEventListener("click", (event) => {
+  if (!$("notifications-panel").contains(event.target) && !$("notifications-toggle").contains(event.target)) { $("notifications-panel").classList.add("hidden"); $("notifications-toggle").setAttribute("aria-expanded", "false"); }
+});
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") { $("notifications-panel").classList.add("hidden"); $("notifications-toggle").setAttribute("aria-expanded", "false"); } });
+$("notifications-read-all").addEventListener("click", async () => {
+  try { const response = await fetch("/api/notifications/read-all", { method: "PATCH", credentials: "same-origin", headers: { Authorization: `Bearer ${authToken}` } }); const result = await response.json(); if (!response.ok) throw new Error(result.error || "Could not update notifications."); notificationItems = notificationItems.map((item) => ({ ...item, read: true })); setNotificationCount(result.unreadCount); }
+  catch (error) { showErrorToast(error.message); }
+});
+socket.on("notification:new", (notification) => { if (!notification?.id) return; notificationItems = [notification, ...notificationItems.filter((item) => item.id !== notification.id)].slice(0, 300); setNotificationCount(notificationUnreadCount + (notification.read ? 0 : 1)); });
+socket.on("notification:count", ({ unreadCount: count }) => setNotificationCount(count));
+socket.on("direct open denied", ({ username: target }) => showErrorToast(`Follow @${target} to start a conversation.`));
+socket.on("follow:changed", () => {
+  if (!$("contacts-section").classList.contains("hidden")) { if (peoplePageMode === "search") loadContacts(); else loadPeopleDirectory(peoplePageMode); }
+});
 function markAppPageActive(page) {
   document.querySelectorAll("[data-page]").forEach((button) => {
     const active = button.dataset.page === page;
@@ -2325,17 +2432,24 @@ function setAppPage(page) {
   closeRoomPicker();
   sidebar.classList.remove("open");
   chatScreen.classList.toggle("aura-page", page === "aura");
-  if (page === "contacts") {
+  if (["contacts", "following", "followers"].includes(page)) {
     closeGamesSection();
     $("aura-study-section").classList.add("hidden");
     $("conversation-view").classList.add("hidden");
     $("contacts-section").classList.remove("hidden");
-    loadContacts();
+    peoplePageMode = page === "contacts" ? "search" : page;
+    const title = peoplePageMode === "following" ? "Following" : peoplePageMode === "followers" ? "Followers" : "Find people";
+    $("contacts-title").textContent = title;
+    $("contacts-description").textContent = peoplePageMode === "search" ? "Search Chatly by username and build your network." : `People in your ${peoplePageMode} network.`;
+    document.querySelector(".contacts-search").classList.toggle("hidden", peoplePageMode !== "search");
+    if (peoplePageMode === "search") loadContacts(); else loadPeopleDirectory(peoplePageMode);
   } else if (page === "messages") {
     closeGamesSection();
     $("aura-study-section").classList.add("hidden");
     $("contacts-section").classList.add("hidden");
     $("conversation-view").classList.remove("hidden");
+    $("messages-empty").classList.toggle("hidden", Boolean(currentConversation));
+    $("message-form").classList.toggle("hidden", !currentConversation);
     updateDetailsPanel();
   } else if (page === "aura") {
     closeGamesSection();
@@ -2354,6 +2468,8 @@ function setAppPage(page) {
   }
 }
 document.querySelectorAll("[data-page]").forEach((button) => button.addEventListener("click", () => setAppPage(button.dataset.page)));
+$("sidebar-find-people").addEventListener("click", () => setAppPage("contacts"));
+$("messages-find-people").addEventListener("click", () => setAppPage("contacts"));
 $("contacts-filter").addEventListener("input", () => { clearTimeout(peopleSearchTimer); peopleSearchTimer = setTimeout(loadContacts, 180); });
 $("public-profile-close").addEventListener("click", () => $("public-profile-modal").classList.add("hidden"));
 $("public-profile-modal").addEventListener("click", (event) => { if (event.target === $("public-profile-modal")) $("public-profile-modal").classList.add("hidden"); });
@@ -2409,7 +2525,8 @@ function addConversationSection(root, title, items) {
     const time = document.createElement("time");
     time.textContent = sidebarTime(item.lastMessage?.time);
     const preview = document.createElement("small");
-    preview.textContent = item.lastMessage?.text || (item.type === "room" ? "Start a conversation" : item.type === "group" ? "Group conversation" : "Open direct message");
+    const lastMessage = item.lastMessage?.text || (item.type === "group" ? "Group conversation" : "Start a conversation");
+    preview.textContent = item.type === "direct" && item.username ? `@${item.username} · ${lastMessage}` : lastMessage;
     top.append(name, time);
     details.append(top, preview);
     open.append(details);
@@ -2456,6 +2573,7 @@ function renderConversationList() {
     empty.className = "conversation-empty";
     empty.textContent = activeInboxFilter === "unread" ? "You’re all caught up." : activeInboxFilter === "groups" ? "No groups yet." : "Your conversations will appear here.";
     root.append(empty);
+    if (activeInboxFilter === "all") { const find = document.createElement("button"); find.type = "button"; find.className = "conversation-empty-action"; find.textContent = "Find people"; find.addEventListener("click", () => setAppPage("contacts")); root.append(find); }
   }
 }
 async function loadConversations() {
@@ -2523,7 +2641,7 @@ function renderGlobalSearch(data) {
   root.replaceChildren();
   addSearchResultGroup(root, "PEOPLE", data.people, (person) => ({ primary: person.displayName || person.name, secondary: `@${person.username || ""}` }), (person) => {
     $("global-search-modal").classList.add("hidden");
-    startDirectConversation(person);
+    openPublicProfile(person.username);
   });
   addSearchResultGroup(root, "MESSAGES", data.messages, (message) => ({ primary: message.user, secondary: message.text || message.attachment?.name || "Shared a file" }), (message) => {
     $("global-search-modal").classList.add("hidden");

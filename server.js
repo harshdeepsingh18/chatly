@@ -35,6 +35,8 @@ const reactionsFile = path.join(dataDirectory, "message-reactions.json");
 const uploadsFile = path.join(dataDirectory, "uploads.json");
 const groupsFile = path.join(dataDirectory, "groups.json");
 const directConversationsFile = path.join(dataDirectory, "direct-conversations.json");
+const followsFile = path.join(dataDirectory, "follows.json");
+const notificationsFile = path.join(dataDirectory, "notifications.json");
 const ticTacToeFile = path.join(dataDirectory, "tic-tac-toe.json");
 const partyGamesFile = path.join(dataDirectory, "party-games.json");
 const uploadDirectory = path.join(dataDirectory, "uploads");
@@ -49,6 +51,10 @@ let authUsersQueue = Promise.resolve();
 let profileQueue = Promise.resolve();
 let directConversations = {};
 let directConversationsQueue = Promise.resolve();
+let follows = {};
+let followsQueue = Promise.resolve();
+let notifications = {};
+let notificationsQueue = Promise.resolve();
 const SESSION_COOKIE = "chatly_session";
 const supabaseUrl = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "";
@@ -116,6 +122,37 @@ function publicProfileFor(userId) {
   const username = record?.username || usernameByUser.get(userId) || "";
   if (!username) return null;
   return { displayName: displayNameFor(userId), username, profilePhotoUrl: profileAvatarFor(userId), bio: String(record?.bio || legacy?.bio || ""), createdAt: record?.createdAt || null };
+}
+function followingIds(userId) { return Array.isArray(follows[userId]) ? follows[userId] : []; }
+function followersOf(userId) { return Object.entries(follows).filter(([, ids]) => Array.isArray(ids) && ids.includes(userId)).map(([id]) => id); }
+function profileForViewer(userId, viewerId) {
+  const profile = profileForUser(userId);
+  return { ...profile, followersCount: followersOf(userId).length, followingCount: followingIds(userId).length, isFollowing: followingIds(viewerId).includes(userId) };
+}
+function hasExistingDirectConversation(a, b) {
+  const id = directConversation(a, b);
+  return Boolean(directConversations[id] || messages.some((message) => message.conversation === id));
+}
+function notificationForViewer(item) {
+  const actor = profileForUser(item.actorUserId);
+  if (!actor) return null;
+  return { id: item.id, type: item.type, message: item.message, createdAt: item.createdAt, read: Boolean(item.read), actor: { displayName: actor.displayName, username: actor.username, profilePhotoUrl: actor.profilePhotoUrl } };
+}
+async function addNotification(recipientUserId, actorUserId, type, message) {
+  if (!authRecordFor(recipientUserId) || !authRecordFor(actorUserId) || recipientUserId === actorUserId) return null;
+  const operation = notificationsQueue.then(async () => {
+    const next = { ...notifications };
+    const record = { id: crypto.randomUUID(), recipientUserId, actorUserId, type, message, createdAt: Date.now(), read: false };
+    next[recipientUserId] = [record, ...(next[recipientUserId] || [])].slice(0, 300);
+    await writeFile(notificationsFile, JSON.stringify(next, null, 2), "utf8");
+    notifications = next;
+    const publicNotification = notificationForViewer(record);
+    io.to(`user:${recipientUserId}`).emit("notification:new", publicNotification);
+    io.to(`user:${recipientUserId}`).emit("notification:count", { unreadCount: (notifications[recipientUserId] || []).filter((item) => !item.read).length });
+    return publicNotification;
+  });
+  notificationsQueue = operation.catch(() => {});
+  return operation;
 }
 function makeAvatarSvg(index) {
   const pick = (items, factor) => items[(index * factor + Math.floor(index / 7)) % items.length];
@@ -507,7 +544,7 @@ app.get("/api/username/availability", async (req, res) => {
 app.get("/api/profile", async (req, res) => {
   const user = await getSupabaseUser(req);
   if (!user) return res.status(401).json({ error: "Sign in to view your profile." });
-  res.json({ profile: profileForUser(user.id) });
+  res.json({ profile: profileForViewer(user.id, user.id) });
 });
 app.patch("/api/profile", async (req, res) => {
   const user = await getSupabaseUser(req);
@@ -524,6 +561,7 @@ app.post("/api/conversations/direct", async (req, res) => {
   if (!targetId || targetId === user.id) return res.status(400).json({ error: "Choose another Chatly user." });
   const profile = profileForUser(targetId);
   if (!profile?.username) return res.status(404).json({ error: "That Chatly user could not be found." });
+  if (!followingIds(user.id).includes(targetId) && !hasExistingDirectConversation(user.id, targetId)) return res.status(403).json({ error: `Follow @${profile.username} to start a conversation.` });
   try {
     const conversation = await ensureDirectConversation(user.id, targetId);
     res.json({ conversationId: conversation.id, userId: targetId, profile });
@@ -537,8 +575,67 @@ app.get("/api/users/search", async (req, res) => {
   const results = [...usernameByUser.entries()]
     .filter(([id, username]) => id !== user.id && username.toLowerCase().includes(query))
     .sort((a, b) => Number(!a[1].toLowerCase().startsWith(query)) - Number(!b[1].toLowerCase().startsWith(query)) || a[1].localeCompare(b[1]))
-    .slice(0, 20).map(([id]) => profileForUser(id));
+    .slice(0, 20).map(([id]) => profileForViewer(id, user.id));
   res.json({ users: results });
+});
+app.get("/api/people/:kind(followers|following)", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in to view your people." });
+  const ids = req.params.kind === "following" ? followingIds(user.id) : followersOf(user.id);
+  res.json({ people: ids.map((id) => profileForViewer(id, user.id)).filter((profile) => profile.username) });
+});
+app.post("/api/users/:username/follow", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in to follow people." });
+  const key = normalizedUsername(req.params.username).toLowerCase();
+  const target = usernameRegistry.get(key);
+  if (!target) return res.status(404).json({ error: "That Chatly user could not be found." });
+  if (target.id === user.id) return res.status(400).json({ error: "You cannot follow yourself." });
+  let created = false;
+  try {
+    const operation = followsQueue.then(async () => {
+      const existing = followingIds(user.id);
+      if (existing.includes(target.id)) return;
+      const next = { ...follows, [user.id]: [...existing, target.id] };
+      await writeFile(followsFile, JSON.stringify(next, null, 2), "utf8");
+      follows = next;
+      created = true;
+    });
+    followsQueue = operation.catch(() => {});
+    await operation;
+  } catch (error) { console.error("Could not save follow relationship:", error); return res.status(500).json({ error: "Could not follow this person." }); }
+  if (created) {
+    const actor = profileForUser(user.id);
+    await addNotification(target.id, user.id, "follow", `${actor.displayName} started following you`).catch((error) => console.error("Could not save follower notification:", error));
+    io.to(`user:${user.id}`).emit("follow:changed", { username: target.name, isFollowing: true });
+    io.to(`user:${target.id}`).emit("follow:changed", { username: target.name, followerAdded: true });
+  }
+  res.json({ profile: profileForViewer(target.id, user.id), following: true });
+});
+app.delete("/api/users/:username/follow", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in to unfollow people." });
+  const key = normalizedUsername(req.params.username).toLowerCase();
+  const target = usernameRegistry.get(key);
+  if (!target) return res.status(404).json({ error: "That Chatly user could not be found." });
+  let removed = false;
+  try {
+    const operation = followsQueue.then(async () => {
+      const existing = followingIds(user.id);
+      if (!existing.includes(target.id)) return;
+      const next = { ...follows, [user.id]: existing.filter((id) => id !== target.id) };
+      await writeFile(followsFile, JSON.stringify(next, null, 2), "utf8");
+      follows = next;
+      removed = true;
+    });
+    followsQueue = operation.catch(() => {});
+    await operation;
+  } catch (error) { console.error("Could not save unfollow relationship:", error); return res.status(500).json({ error: "Could not unfollow this person." }); }
+  if (removed) {
+    io.to(`user:${user.id}`).emit("follow:changed", { username: target.name, isFollowing: false });
+    io.to(`user:${target.id}`).emit("follow:changed", { username: target.name, followerRemoved: true });
+  }
+  res.json({ profile: profileForViewer(target.id, user.id), following: false });
 });
 app.get("/api/users/:username", async (req, res) => {
   const viewer = await getSupabaseUser(req);
@@ -548,7 +645,42 @@ app.get("/api/users/:username", async (req, res) => {
   if (!entry) return res.sendStatus(404);
   const profile = profileForUser(entry.id);
   if (!profile?.username) return res.sendStatus(404);
-  res.json({ profile });
+  res.json({ profile: profileForViewer(entry.id, viewer.id) });
+});
+app.get("/api/notifications/unread-count", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in to view notifications." });
+  res.json({ unreadCount: (notifications[user.id] || []).filter((item) => !item.read).length });
+});
+app.get("/api/notifications", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in to view notifications." });
+  const items = (notifications[user.id] || []).map(notificationForViewer).filter(Boolean);
+  res.json({ notifications: items, unreadCount: items.filter((item) => !item.read).length });
+});
+app.patch("/api/notifications/read-all", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in to update notifications." });
+  const operation = notificationsQueue.then(async () => {
+    const next = { ...notifications, [user.id]: (notifications[user.id] || []).map((item) => ({ ...item, read: true })) };
+    await writeFile(notificationsFile, JSON.stringify(next, null, 2), "utf8"); notifications = next;
+  });
+  notificationsQueue = operation.catch(() => {});
+  try { await operation; res.json({ unreadCount: 0 }); }
+  catch { res.status(500).json({ error: "Could not mark notifications as read." }); }
+});
+app.patch("/api/notifications/:notificationId/read", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in to update notifications." });
+  const operation = notificationsQueue.then(async () => {
+    const current = notifications[user.id] || [];
+    const next = { ...notifications, [user.id]: current.map((item) => item.id === req.params.notificationId ? { ...item, read: true } : item) };
+    await writeFile(notificationsFile, JSON.stringify(next, null, 2), "utf8"); notifications = next;
+    return next[user.id].filter((item) => !item.read).length;
+  });
+  notificationsQueue = operation.catch(() => {});
+  try { const unreadCount = await operation; res.json({ unreadCount }); }
+  catch { res.status(500).json({ error: "Could not mark this notification as read." }); }
 });
 app.post("/api/profile/avatar", express.raw({ type: "application/octet-stream", limit: "4mb" }), async (req, res) => {
   const user = await getSupabaseUser(req);
@@ -670,7 +802,6 @@ app.get("/api/conversations", async (req, res) => {
     if (!conversations.has(id)) conversations.set(id, { id, ...details, lastMessage: null });
     return conversations.get(id);
   };
-  chatRooms.forEach((room) => ensure(room, { type: "room", name: room, avatar: "" }));
   Object.values(groups).filter((group) => group.memberIds.includes(user.id)).forEach((group) => ensure(`group:${group.id}`, { type: "group", name: group.name, avatar: "" }));
   Object.values(directConversations).filter((conversation) => conversation.participants.includes(user.id)).forEach((conversation) => {
     const otherId = conversation.participants.find((id) => id !== user.id);
@@ -678,6 +809,7 @@ app.get("/api/conversations", async (req, res) => {
   });
   for (const message of messages) {
     if (message.deleted || !canAccessConversation(message.conversation, user.id)) continue;
+    if (!message.conversation.startsWith("dm:") && !message.conversation.startsWith("group:")) continue;
     let details;
     if (message.conversation.startsWith("dm:")) {
       const otherId = message.conversation.slice(3).split(":").find((id) => id !== user.id);
@@ -916,6 +1048,10 @@ async function loadMessages() {
   try { partyGames = JSON.parse(await readFile(partyGamesFile, "utf8")); }
   catch (error) { if (error.code !== "ENOENT") throw error; }
   try { directConversations = JSON.parse(await readFile(directConversationsFile, "utf8")); }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
+  try { follows = JSON.parse(await readFile(followsFile, "utf8")); }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
+  try { notifications = JSON.parse(await readFile(notificationsFile, "utf8")); }
   catch (error) { if (error.code !== "ENOENT") throw error; }
 }
 
@@ -1178,6 +1314,10 @@ io.on("connection", (socket) => {
 
   socket.on("open direct", async (targetId) => {
     if (typeof targetId !== "string" || targetId === socket.data.userId || !usernameByUser.has(targetId)) return;
+    if (!followingIds(socket.data.userId).includes(targetId) && !hasExistingDirectConversation(socket.data.userId, targetId)) {
+      socket.emit("direct open denied", { username: usernameByUser.get(targetId) });
+      return;
+    }
     let storedConversation;
     try { storedConversation = await ensureDirectConversation(socket.data.userId, targetId); }
     catch (error) { console.error("Could not open direct conversation:", error); socket.emit("message error", "Could not open that conversation."); return; }
@@ -1418,6 +1558,7 @@ io.on("connection", (socket) => {
     io.to(conversation).emit("chat message", message);
     if (isDirectConversationFor(conversation, socket.data.userId)) {
       const recipientId = conversation.split(":").slice(1).find((id) => id !== socket.data.userId);
+      await addNotification(recipientId, socket.data.userId, "message", `${member.name} sent you a message`).catch((error) => console.error("Could not save message notification:", error));
       io.to(`user:${recipientId}`).emit("direct notification", { conversation, fromId: socket.data.userId, fromName: member.name });
     } else if (conversation.startsWith("group:")) {
       const group = groups[conversation.slice(6)];
