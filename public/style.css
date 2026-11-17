@@ -2266,7 +2266,7 @@ main > header {
   #composer-popover button:hover { background: var(--bg); }
   #composer-popover svg { width: 18px; height: 18px; }
   .attachment-preview { left: 12px; bottom: calc(100% - 4px); max-width: calc(100% - 24px); }
-  #mobile-nav { position: fixed; z-index: 24; inset: auto 0 0; min-height: calc(60px + env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); padding: 5px 4px max(6px, env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: var(--surface); }
+  #mobile-nav { position: fixed; z-index: 24; inset: auto 0 0; min-height: calc(60px + env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 5px 4px max(6px, env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: var(--surface); }
   #mobile-nav button { min-height: 44px; display: grid; align-content: center; justify-items: center; gap: 3px; border-radius: 10px; background: transparent; color: var(--muted); }
   #mobile-nav button.active { color: var(--accent-text); }
   #mobile-nav svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; }
