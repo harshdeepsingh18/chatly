@@ -147,7 +147,9 @@ socket.on("connect", () => {
   $("messages-empty").classList.toggle("hidden", Boolean(currentConversation));
   $("message-form").classList.toggle("hidden", !currentConversation);
   loadConversations();
-  input.focus();
+  const initialPage = window.location.pathname === "/profile" ? "profile" : window.location.pathname === "/settings" ? "settings" : "messages";
+  setAppPage(initialPage);
+  if (initialPage === "messages") input.focus();
 });
 socket.on("connect_error", (error) => {
   loginScreen.classList.add("hidden");
@@ -2110,6 +2112,26 @@ function updateProfilePanel() {
   profileButton.lastElementChild.textContent = firstName;
   profileButton.setAttribute("aria-label", "Profile and settings for " + firstName);
   profileButton.title = "Profile and settings for " + firstName;
+  const profileAvatar = createAvatar(currentProfile.displayName || currentProfile.name || username, currentProfile.avatar, "avatar profile-page-avatar");
+  profileAvatar.id = "profile-page-avatar";
+  $("profile-page-avatar").replaceWith(profileAvatar);
+  const displayName = currentProfile.displayName || currentProfile.name || username || "Chatly member";
+  const handle = `@${currentProfile.username || username || "chatly"}`;
+  const bio = currentProfile.bio || "Add a bio to introduce yourself on Chatly.";
+  $("profile-page-title").textContent = displayName;
+  $("profile-page-handle").textContent = handle;
+  $("profile-page-bio").textContent = bio;
+  $("profile-page-followers").textContent = currentProfile.followersCount || 0;
+  $("profile-page-following").textContent = currentProfile.followingCount || 0;
+  $("profile-summary-bio").textContent = currentProfile.bio || "No bio yet.";
+  $("profile-summary-followers").textContent = currentProfile.followersCount || 0;
+  $("profile-summary-following").textContent = currentProfile.followingCount || 0;
+  $("profile-about-copy").textContent = currentProfile.bio || "No bio yet.";
+  $("profile-about-handle").textContent = handle;
+  $("profile-about-email").textContent = currentProfile.email || "";
+  $("settings-page-email").textContent = currentProfile.email || "";
+  $("settings-page-username").textContent = handle;
+  $("settings-page-name").textContent = displayName;
 }
 function buildAvatarGrid() {
   if (avatarGridBuilt) return;
@@ -2172,10 +2194,9 @@ socket.on("avatar updated", (update) => {
   if (!$("contacts-section").classList.contains("hidden")) loadContacts();
   updateDetailsPanel();
 });
-$("profile-btn").addEventListener("click", () => { markAppPageActive("settings"); updateProfilePanel(); $("settings-status").textContent = ""; $("settings-modal").classList.remove("hidden"); });
+$("profile-btn").addEventListener("click", () => setAppPage("profile"));
 function closeSettings() {
   $("settings-modal").classList.add("hidden");
-  markAppPageActive("messages");
 }
 $("settings-close").addEventListener("click", closeSettings);
 $("settings-modal").addEventListener("click", (event) => { if (event.target === $("settings-modal")) closeSettings(); });
@@ -2419,6 +2440,7 @@ socket.on("notification:count", ({ unreadCount: count }) => setNotificationCount
 socket.on("direct open denied", ({ username: target }) => showErrorToast(`Follow @${target} to start a conversation.`));
 socket.on("follow:changed", () => {
   if (!$("contacts-section").classList.contains("hidden")) { if (peoplePageMode === "search") loadContacts(); else loadPeopleDirectory(peoplePageMode); }
+  fetch("/api/profile", { credentials: "same-origin", headers: { Authorization: `Bearer ${authToken}` } }).then((response) => response.ok ? response.json() : null).then((result) => { if (result?.profile && currentProfile) { Object.assign(currentProfile, result.profile, { avatar: result.profile.profilePhotoUrl || currentProfile.googleAvatar }); updateProfilePanel(); } }).catch(() => {});
 });
 function markAppPageActive(page) {
   document.querySelectorAll("[data-page]").forEach((button) => {
@@ -2428,10 +2450,14 @@ function markAppPageActive(page) {
   });
 }
 function setAppPage(page) {
+  const route = page === "profile" ? "/profile" : page === "settings" ? "/settings" : "/";
+  if (window.location.pathname !== route) history.pushState({ page }, "", route);
   markAppPageActive(page);
   closeRoomPicker();
   sidebar.classList.remove("open");
   chatScreen.classList.toggle("aura-page", page === "aura");
+  $("profile-section").classList.toggle("hidden", page !== "profile");
+  $("settings-section").classList.toggle("hidden", page !== "settings");
   if (["contacts", "following", "followers"].includes(page)) {
     closeGamesSection();
     $("aura-study-section").classList.add("hidden");
@@ -2459,15 +2485,23 @@ function setAppPage(page) {
     $("aura-study-section").classList.remove("hidden");
     setConversationHeading("aura", "Aura");
     $("conversation-subtitle").textContent = "Your study helper";
-  } else if (page === "settings") {
-    setAppPage("messages");
-    markAppPageActive("settings");
+  } else if (page === "profile") {
+    closeGamesSection();
+    $("aura-study-section").classList.add("hidden");
+    $("contacts-section").classList.add("hidden");
+    $("conversation-view").classList.add("hidden");
     updateProfilePanel();
-    $("settings-status").textContent = "";
-    $("settings-modal").classList.remove("hidden");
+  } else if (page === "settings") {
+    closeGamesSection();
+    $("aura-study-section").classList.add("hidden");
+    $("contacts-section").classList.add("hidden");
+    $("conversation-view").classList.add("hidden");
+    updateProfilePanel();
+    loadPreferences();
   }
 }
 document.querySelectorAll("[data-page]").forEach((button) => button.addEventListener("click", () => setAppPage(button.dataset.page)));
+window.addEventListener("popstate", () => setAppPage(window.location.pathname === "/profile" ? "profile" : window.location.pathname === "/settings" ? "settings" : "messages"));
 $("sidebar-find-people").addEventListener("click", () => setAppPage("contacts"));
 $("messages-find-people").addEventListener("click", () => setAppPage("contacts"));
 $("contacts-filter").addEventListener("input", () => { clearTimeout(peopleSearchTimer); peopleSearchTimer = setTimeout(loadContacts, 180); });
@@ -2479,6 +2513,44 @@ $("settings-aura-open").addEventListener("click", () => {
   $("settings-modal").classList.add("hidden");
   setAppPage("aura");
 });
+
+let notificationPreferences = { newFollowers: true, messages: true, messageNotifications: true };
+async function loadPreferences() {
+  try {
+    const response = await fetch("/api/preferences", { credentials: "same-origin", headers: { Authorization: `Bearer ${authToken}` } });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Could not load preferences.");
+    notificationPreferences = result.preferences;
+    document.querySelectorAll("[data-preference]").forEach((input) => { input.checked = Boolean(notificationPreferences[input.dataset.preference]); });
+  } catch (error) { showErrorToast(error.message); }
+}
+document.querySelectorAll("[data-preference]").forEach((input) => input.addEventListener("change", async () => {
+  const preference = input.dataset.preference;
+  input.disabled = true;
+  try {
+    const response = await fetch("/api/preferences", { method: "PATCH", credentials: "same-origin", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ [preference]: input.checked }) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Could not save preference.");
+    notificationPreferences = result.preferences;
+  } catch (error) { input.checked = Boolean(notificationPreferences[preference]); showErrorToast(error.message); }
+  finally { input.disabled = false; }
+}));
+document.querySelectorAll("[data-settings-section]").forEach((button) => button.addEventListener("click", () => {
+  const section = button.dataset.settingsSection;
+  document.querySelectorAll("[data-settings-section]").forEach((item) => item.classList.toggle("active", item === button));
+  document.querySelectorAll("[data-settings-pane]").forEach((pane) => pane.classList.toggle("hidden", pane.dataset.settingsPane !== section));
+}));
+document.querySelectorAll("[data-profile-tab]").forEach((button) => button.addEventListener("click", () => {
+  const tab = button.dataset.profileTab;
+  document.querySelectorAll("[data-profile-tab]").forEach((item) => item.classList.toggle("active", item === button));
+  $("profile-activity").classList.toggle("hidden", tab !== "activity");
+  $("profile-about").classList.toggle("hidden", tab !== "about");
+}));
+$("edit-profile-open").addEventListener("click", () => { updateProfilePanel(); $("settings-status").textContent = ""; $("settings-modal").classList.remove("hidden"); });
+$("settings-edit-profile").addEventListener("click", () => $("edit-profile-open").click());
+$("settings-signout").addEventListener("click", () => $("signout-btn").click());
+$("profile-followers-link").addEventListener("click", () => setAppPage("followers"));
+$("profile-following-link").addEventListener("click", () => setAppPage("following"));
 
 function openConversationResult(conversation) {
   setAppPage("messages");

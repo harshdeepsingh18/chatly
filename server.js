@@ -37,6 +37,7 @@ const groupsFile = path.join(dataDirectory, "groups.json");
 const directConversationsFile = path.join(dataDirectory, "direct-conversations.json");
 const followsFile = path.join(dataDirectory, "follows.json");
 const notificationsFile = path.join(dataDirectory, "notifications.json");
+const preferencesFile = path.join(dataDirectory, "preferences.json");
 const ticTacToeFile = path.join(dataDirectory, "tic-tac-toe.json");
 const partyGamesFile = path.join(dataDirectory, "party-games.json");
 const uploadDirectory = path.join(dataDirectory, "uploads");
@@ -55,6 +56,8 @@ let follows = {};
 let followsQueue = Promise.resolve();
 let notifications = {};
 let notificationsQueue = Promise.resolve();
+let preferences = {};
+let preferencesQueue = Promise.resolve();
 const SESSION_COOKIE = "chatly_session";
 const supabaseUrl = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "";
@@ -69,6 +72,10 @@ const chatRooms = ["general", "doubts", "notes"];
 app.use(express.json({ limit: "8kb" }));
 app.get("/", (req, res) => {
   if (!sessionUser(req) && !req.query.code && !req.query.error) return res.redirect("/login");
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+app.get(["/profile", "/settings"], (req, res) => {
+  if (!sessionUser(req)) return res.redirect("/login");
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 app.use(express.static(path.join(__dirname, "public")));
@@ -140,6 +147,8 @@ function notificationForViewer(item) {
 }
 async function addNotification(recipientUserId, actorUserId, type, message) {
   if (!authRecordFor(recipientUserId) || !authRecordFor(actorUserId) || recipientUserId === actorUserId) return null;
+  const recipientPreferences = preferences[recipientUserId] || {};
+  if ((type === "follow" && recipientPreferences.newFollowers === false) || (type === "message" && (recipientPreferences.messages === false || recipientPreferences.messageNotifications === false))) return null;
   const operation = notificationsQueue.then(async () => {
     const next = { ...notifications };
     const record = { id: crypto.randomUUID(), recipientUserId, actorUserId, type, message, createdAt: Date.now(), read: false };
@@ -652,6 +661,26 @@ app.get("/api/notifications/unread-count", async (req, res) => {
   if (!user) return res.status(401).json({ error: "Sign in to view notifications." });
   res.json({ unreadCount: (notifications[user.id] || []).filter((item) => !item.read).length });
 });
+app.get("/api/preferences", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in to view preferences." });
+  res.json({ preferences: { newFollowers: true, messages: true, messageNotifications: true, ...(preferences[user.id] || {}) } });
+});
+app.patch("/api/preferences", async (req, res) => {
+  const user = await getSupabaseUser(req);
+  if (!user) return res.status(401).json({ error: "Sign in to update preferences." });
+  const fields = ["newFollowers", "messages", "messageNotifications"];
+  const update = Object.fromEntries(fields.filter((field) => typeof req.body?.[field] === "boolean").map((field) => [field, req.body[field]]));
+  const operation = preferencesQueue.then(async () => {
+    const next = { ...preferences, [user.id]: { ...(preferences[user.id] || {}), ...update } };
+    await writeFile(preferencesFile, JSON.stringify(next, null, 2), "utf8");
+    preferences = next;
+    return next[user.id];
+  });
+  preferencesQueue = operation.catch(() => {});
+  try { res.json({ preferences: { newFollowers: true, messages: true, messageNotifications: true, ...(await operation) } }); }
+  catch { res.status(500).json({ error: "Could not save preferences." }); }
+});
 app.get("/api/notifications", async (req, res) => {
   const user = await getSupabaseUser(req);
   if (!user) return res.status(401).json({ error: "Sign in to view notifications." });
@@ -1052,6 +1081,8 @@ async function loadMessages() {
   try { follows = JSON.parse(await readFile(followsFile, "utf8")); }
   catch (error) { if (error.code !== "ENOENT") throw error; }
   try { notifications = JSON.parse(await readFile(notificationsFile, "utf8")); }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
+  try { preferences = JSON.parse(await readFile(preferencesFile, "utf8")); }
   catch (error) { if (error.code !== "ENOENT") throw error; }
 }
 
