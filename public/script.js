@@ -130,7 +130,7 @@ function showDemoConversation() {
   updateComposerState();
 }
 
-document.addEventListener("DOMContentLoaded", showDemoConversation);
+// The app starts on the login page and only enters chat after /auth/me succeeds.
 
 // ----- 1. Authenticated entry -----
 socket.on("connect", () => {
@@ -1807,27 +1807,24 @@ $("saved-modal").addEventListener("click", (event) => { if (event.target === $("
 $("scroll-latest").addEventListener("click", () => messagesBox.scrollTo({ top: messagesBox.scrollHeight, behavior: "smooth" }));
 messagesBox.addEventListener("scroll", updateScrollLatest, { passive: true });
 
-let resumedSupabaseSession = false;
-async function resumeSupabaseSession() {
-  if (!supabaseClient || resumedSupabaseSession) return;
-  const { data } = await supabaseClient.auth.getSession();
-  if (!data.session || resumedSupabaseSession) return;
-  resumedSupabaseSession = true;
-  authToken = data.session.access_token;
-  const user = data.session.user;
+let resumedAuthSession = false;
+async function finishAuthentication(user) {
+  resumedAuthSession = true;
+  document.body.classList.add("authenticated");
+  if (window.location.pathname === "/login") history.replaceState(null, "", "/");
+  authToken = "cookie-session";
   currentUserId = user.id;
-  currentProfile = { id: user.id, email: user.email || "", name: String(user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0] || "Chatly user").slice(0, 20), avatar: user.user_metadata?.avatar_url || user.user_metadata?.picture || "" };
+  currentProfile = { id: user.id, email: user.email || "", name: String(user.name || user.email?.split("@")[0] || "Chatly user").slice(0, 40), providerName: String(user.name || ""), avatar: user.picture || "" };
   currentProfile.googleAvatar = currentProfile.avatar;
   username = currentProfile.name;
-  $("auth-status").textContent = `Signed in as ${user.email}`;
   let hasSavedUsername = false;
   try {
-    const response = await fetch("/api/username", { headers: { Authorization: `Bearer ${authToken}` } });
+    const response = await fetch("/api/username", { headers: { Authorization: `Bearer ${authToken}` }, credentials: "same-origin" });
     const result = await response.json();
     if (response.ok && result.username) { username = result.username; hasSavedUsername = true; }
   } catch {}
   try {
-    const avatarResponse = await fetch("/api/avatar", { headers: { Authorization: `Bearer ${authToken}` } });
+    const avatarResponse = await fetch("/api/avatar", { headers: { Authorization: `Bearer ${authToken}` }, credentials: "same-origin" });
     const avatarResult = await avatarResponse.json();
     if (avatarResponse.ok) {
       currentProfile.avatarId = avatarResult.avatarId || "";
@@ -1840,10 +1837,19 @@ async function resumeSupabaseSession() {
   if (hasSavedUsername) await enterChat();
   else usernameScreen.classList.remove("hidden");
 }
+async function resumeAuthSession() {
+  if (resumedAuthSession) return;
+  try {
+    const response = await fetch("/auth/me", { credentials: "same-origin" });
+    if (!response.ok) { loginScreen.classList.remove("hidden"); chatScreen.classList.add("hidden"); return; }
+    const { user } = await response.json();
+    if (user) await finishAuthentication(user);
+  } catch { loginScreen.classList.remove("hidden"); chatScreen.classList.add("hidden"); }
+}
 async function enterChat() {
   await loadGroups();
   try { await loadSavedMessages(); } catch (error) { $("username-status").textContent = error.message; }
-  socket.auth = { token: authToken };
+  socket.auth = { token: "cookie-session" };
   if (!socket.connected) socket.connect();
 }
 $("username-form").addEventListener("submit", async (event) => {
@@ -1916,10 +1922,88 @@ if (supabaseClient) {
     authToken = session?.access_token || "";
     if (authToken) socket.auth = { token: authToken };
   });
-  resumeSupabaseSession();
 } else {
   $("auth-status").textContent = "Add your Supabase Project URL and anon key to .env, enable Google under Supabase Auth providers, and restart the server.";
 }
+
+function authToast(message, error = false) {
+  const status = $("auth-toast");
+  status.textContent = message;
+  status.classList.toggle("is-error", error);
+  clearTimeout(authToast.timer);
+  authToast.timer = setTimeout(() => { status.textContent = ""; status.classList.remove("is-error"); }, 5000);
+}
+function showAuthView(view) {
+  $("signin-view").classList.toggle("hidden", view !== "signin");
+  $("register-view").classList.toggle("hidden", view !== "register");
+}
+document.querySelectorAll("[data-auth-view]").forEach((button) => button.addEventListener("click", () => showAuthView(button.dataset.authView)));
+document.querySelectorAll("[data-password-toggle]").forEach((button) => button.addEventListener("click", () => {
+  const field = $(button.dataset.passwordToggle), visible = field.type === "password";
+  field.type = visible ? "text" : "password"; button.textContent = visible ? "Hide" : "Show";
+  button.setAttribute("aria-label", visible ? "Hide password" : "Show password");
+}));
+$("forgot-password").addEventListener("click", () => authToast("Password reset email is not configured yet. Contact the Chatly administrator to reset your password.", true));
+async function submitAuthForm(endpoint, buttonId, errorId, body) {
+  const button = $(buttonId), errorNode = $(errorId), spinner = button.querySelector(".auth-spinner");
+  errorNode.textContent = "";
+  if (button.disabled) return;
+  button.disabled = true; button.setAttribute("aria-busy", "true"); spinner.classList.remove("hidden");
+  try {
+    const response = await fetch(endpoint, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Sign-in failed. Please try again.");
+    loginScreen.classList.add("hidden"); await finishAuthentication(result.user);
+  } catch (error) { errorNode.textContent = error.message || "Could not sign in. Please try again."; }
+  finally { button.disabled = false; button.removeAttribute("aria-busy"); spinner.classList.add("hidden"); }
+}
+$("auth-login-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const email = $("auth-login-email"), password = $("auth-login-password");
+  if (!email.validity.valid) { email.reportValidity(); return; }
+  submitAuthForm("/auth/login", "auth-login-submit", "auth-login-error", { email: email.value, password: password.value, remember: document.querySelector(".remember-row input").checked });
+});
+$("auth-register-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const name = $("auth-register-name"), email = $("auth-register-email"), password = $("auth-register-password"), confirm = $("auth-register-confirm");
+  if (!name.value.trim()) { name.reportValidity(); return; }
+  if (!email.validity.valid) { email.reportValidity(); return; }
+  if (password.value.length < 8) { $("auth-register-error").textContent = "Use a password with at least 8 characters."; password.focus(); return; }
+  if (password.value !== confirm.value) { $("auth-register-error").textContent = "Your passwords do not match."; confirm.focus(); return; }
+  submitAuthForm("/auth/register", "auth-register-submit", "auth-register-error", { name: name.value, email: email.value, password: password.value });
+});
+window.chatlyGoogleCredential = async ({ credential }) => {
+  googlePromptPending = false;
+  const button = $("auth-google"); button.disabled = true;
+  try {
+    const response = await fetch("/auth/google", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ credential }) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Google sign-in could not be verified.");
+    loginScreen.classList.add("hidden"); await finishAuthentication(result.user);
+  } catch (error) { authToast(error.message || "Google sign-in failed. Please try again.", true); }
+  finally { button.disabled = false; }
+};
+let googlePromptPending = false;
+function startGoogleSignIn(button) {
+  if (!window.CHATLY_GOOGLE_CLIENT_ID) { authToast("Google sign-in is not configured yet. Add GOOGLE_CLIENT_ID in Render settings.", true); return; }
+  if (!window.google?.accounts?.id) { authToast("Google sign-in could not load. Check your connection and try again.", true); return; }
+  if (!window.chatlyGoogleInitialized) {
+    window.google.accounts.id.initialize({ client_id: window.CHATLY_GOOGLE_CLIENT_ID, callback: window.chatlyGoogleCredential, cancel_on_tap_outside: true, auto_select: false });
+    window.chatlyGoogleInitialized = true;
+  }
+  googlePromptPending = true; button.disabled = true;
+  window.google.accounts.id.prompt((notice) => {
+    if (!googlePromptPending) return;
+    if (notice.isNotDisplayed?.() || notice.isSkippedMoment?.()) {
+      googlePromptPending = false; button.disabled = false;
+      authToast(notice.isNotDisplayed?.() ? "Google sign-in was blocked by the browser. Allow pop-ups or try again." : "Google sign-in was cancelled. You can try again anytime.", true);
+    }
+  });
+  setTimeout(() => { if (googlePromptPending) { googlePromptPending = false; button.disabled = false; authToast("Google sign-in was cancelled or did not open. Please try again.", true); } }, 20000);
+}
+$("auth-google").addEventListener("click", (event) => startGoogleSignIn(event.currentTarget));
+document.querySelector(".register-google").addEventListener("click", (event) => startGoogleSignIn(event.currentTarget));
+resumeAuthSession();
 
 function updateProfilePanel() {
   if (!currentProfile) return;
@@ -1931,7 +2015,7 @@ function updateProfilePanel() {
   buildAvatarGrid();
   $("settings-username").value = username || "";
   const profileButton = $("profile-btn");
-  const firstName = String(username || currentProfile.name || "Profile").trim().split(/\s+/)[0];
+  const firstName = String(currentProfile.providerName || username || currentProfile.name || "Profile").trim().split(/\s+/)[0];
   profileButton.replaceChildren(createAvatar(username || currentProfile.name, currentProfile.avatar, "avatar profile-button-avatar"), document.createElement("span"));
   profileButton.lastElementChild.textContent = firstName;
   profileButton.setAttribute("aria-label", "Profile and settings for " + firstName);
@@ -2026,12 +2110,14 @@ $("settings-username-form").addEventListener("submit", async (event) => {
 socket.on("username updated", (name) => { username = name; if (currentProfile) currentProfile.name = name; $("me").textContent = "You are " + name; updateProfilePanel(); });
 $("signout-btn").addEventListener("click", async () => {
   $("signout-btn").disabled = true;
-  try { if (supabaseClient) await supabaseClient.auth.signOut(); }
+  try { await fetch("/auth/logout", { method: "POST", credentials: "same-origin" }); }
   finally {
     socket.disconnect();
-    authToken = ""; currentUserId = ""; currentProfile = null; username = ""; resumedSupabaseSession = false;
+    authToken = ""; currentUserId = ""; currentProfile = null; username = ""; resumedAuthSession = false;
+    document.body.classList.remove("authenticated");
     $("settings-modal").classList.add("hidden");
     chatScreen.classList.add("hidden"); usernameScreen.classList.add("hidden"); loginScreen.classList.remove("hidden");
+    history.replaceState(null, "", "/login");
     $("auth-status").textContent = "Signed out.";
     $("signout-btn").disabled = false;
   }

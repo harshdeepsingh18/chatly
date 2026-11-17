@@ -38,6 +38,7 @@ const ticTacToeFile = path.join(dataDirectory, "tic-tac-toe.json");
 const partyGamesFile = path.join(dataDirectory, "party-games.json");
 const uploadDirectory = path.join(dataDirectory, "uploads");
 const authUsersFile = path.join(dataDirectory, "auth-users.json");
+const authSessionsFile = path.join(dataDirectory, "auth-sessions.json");
 const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
 const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
 const googleVerifier = new OAuth2Client(googleClientId || undefined);
@@ -56,7 +57,15 @@ const geminiModel = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 const chatRooms = ["general", "doubts", "notes"];
 
 app.use(express.json({ limit: "8kb" }));
+app.get("/", (req, res) => {
+  if (!sessionUser(req)) return res.redirect("/login");
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
 app.use(express.static(path.join(__dirname, "public")));
+app.get("/login", (req, res) => {
+  if (sessionUser(req)) return res.redirect("/");
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
 app.get("/config.js", (_req, res) => {
   res.type("application/javascript").send(`window.CHATLY_SUPABASE_URL = ${JSON.stringify(supabaseUrl)}; window.CHATLY_SUPABASE_ANON_KEY = ${JSON.stringify(supabaseAnonKey)}; window.CHATLY_GOOGLE_CLIENT_ID = ${JSON.stringify(googleClientId)}; window.CHATLY_ROOMS = ${JSON.stringify(chatRooms)}; window.CHATLY_AURA_ENABLED = ${Boolean(openAiApiKey || geminiApiKey)};`);
 });
@@ -128,15 +137,15 @@ function sessionUser(req) {
   const user = authUsers.find((item) => item.id === session.userId);
   return user ? { id: user.id, email: user.email, user_metadata: { name: user.name, full_name: user.name, avatar_url: user.picture || "", picture: user.picture || "" } } : null;
 }
-function setSessionCookie(res, id, req) {
+function setSessionCookie(res, id, req, remember = true) {
   const signature = crypto.createHmac("sha256", sessionSecret).update(id).digest("hex");
   const secure = req.secure || req.get("x-forwarded-proto") === "https";
-  res.cookie(SESSION_COOKIE, `${id}.${signature}`, { httpOnly: true, secure, sameSite: "lax", path: "/", maxAge: 30 * 24 * 60 * 60 * 1000 });
+  res.cookie(SESSION_COOKIE, `${id}.${signature}`, { httpOnly: true, secure, sameSite: "lax", path: "/", ...(remember ? { maxAge: 30 * 24 * 60 * 60 * 1000 } : {}) });
 }
-function startSession(user, req, res) {
+function startSession(user, req, res, remember = true) {
   const id = crypto.randomBytes(32).toString("base64url");
   authSessions.set(id, { userId: user.id, expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000 });
-  setSessionCookie(res, id, req);
+  setSessionCookie(res, id, req, remember);
   return { id: user.id, email: user.email, name: user.name, picture: user.picture || "", provider: user.provider };
 }
 async function getSupabaseUser(req) {
@@ -184,6 +193,10 @@ async function saveAuthUsers(nextUsers) {
   authUsersQueue = operation.catch(() => {});
   await operation;
 }
+async function saveAuthSessions() {
+  await mkdir(dataDirectory, { recursive: true });
+  await writeFile(authSessionsFile, JSON.stringify([...authSessions.entries()]), "utf8");
+}
 app.post("/auth/register", async (req, res) => {
   const name = String(req.body?.name || "").trim().slice(0, 80);
   const email = String(req.body?.email || "").trim().toLowerCase();
@@ -196,7 +209,9 @@ app.post("/auth/register", async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 12);
     const user = { id: crypto.randomUUID(), name, email, passwordHash, picture: "", provider: "email", createdAt: Date.now() };
     await saveAuthUsers([...authUsers, user]);
-    res.status(201).json({ user: startSession(user, req, res) });
+    const sessionUser = startSession(user, req, res, req.body?.remember !== false);
+    await saveAuthSessions();
+    res.status(201).json({ user: sessionUser });
   } catch (error) { console.error("Could not register account:", error); res.status(500).json({ error: "Could not create your account. Try again." }); }
 });
 app.post("/auth/login", async (req, res) => {
@@ -205,7 +220,9 @@ app.post("/auth/login", async (req, res) => {
   const user = authUsers.find((item) => item.email === email);
   const valid = user?.passwordHash ? await bcrypt.compare(password, user.passwordHash) : false;
   if (!valid) return res.status(401).json({ error: "Wrong email or password" });
-  res.json({ user: startSession(user, req, res) });
+  const sessionUser = startSession(user, req, res, req.body?.remember !== false);
+  await saveAuthSessions();
+  res.json({ user: sessionUser });
 });
 app.post("/auth/google", async (req, res) => {
   const credential = String(req.body?.credential || "");
@@ -224,12 +241,15 @@ app.post("/auth/google", async (req, res) => {
       user = { ...user, googleSub: payload.sub, picture: payload.picture || user.picture, provider: user.passwordHash ? user.provider : "google" };
       await saveAuthUsers(authUsers.map((item) => item.id === user.id ? user : item));
     }
-    res.json({ user: startSession(user, req, res) });
+    const sessionUser = startSession(user, req, res);
+    await saveAuthSessions();
+    res.json({ user: sessionUser });
   } catch (error) { console.warn("Google ID token verification failed:", error.message); res.status(401).json({ error: "Google sign-in could not be verified. Please try again." }); }
 });
-app.post("/auth/logout", (req, res) => {
+app.post("/auth/logout", async (req, res) => {
   const [id] = cookieValue(req, SESSION_COOKIE).split(".");
   if (id) authSessions.delete(id);
+  await saveAuthSessions();
   res.clearCookie(SESSION_COOKIE, { httpOnly: true, secure: req.secure || req.get("x-forwarded-proto") === "https", sameSite: "lax", path: "/" });
   res.json({ ok: true });
 });
@@ -1332,6 +1352,10 @@ const PORT = process.env.PORT || 3000;
 async function startServer() {
   try { authUsers = JSON.parse(await readFile(authUsersFile, "utf8")); }
   catch (error) { if (error.code !== "ENOENT") throw error; authUsers = []; }
+  try {
+    const sessions = JSON.parse(await readFile(authSessionsFile, "utf8"));
+    for (const [id, session] of sessions) if (session.expiresAt > Date.now()) authSessions.set(id, session);
+  } catch (error) { if (error.code !== "ENOENT") throw error; }
   await loadMessages();
   server.listen(PORT, () => {
     console.log("Chatly running at http://localhost:" + PORT);
