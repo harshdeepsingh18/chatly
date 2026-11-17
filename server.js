@@ -115,7 +115,7 @@ function publicProfileFor(userId) {
   const legacy = usernameRegistry.get((usernameByUser.get(userId) || "").toLocaleLowerCase());
   const username = record?.username || usernameByUser.get(userId) || "";
   if (!username) return null;
-  return { id: userId, displayName: displayNameFor(userId), username, profilePhotoUrl: profileAvatarFor(userId), bio: String(record?.bio || legacy?.bio || ""), createdAt: record?.createdAt || null };
+  return { displayName: displayNameFor(userId), username, profilePhotoUrl: profileAvatarFor(userId), bio: String(record?.bio || legacy?.bio || ""), createdAt: record?.createdAt || null };
 }
 function makeAvatarSvg(index) {
   const pick = (items, factor) => items[(index * factor + Math.floor(index / 7)) % items.length];
@@ -235,10 +235,11 @@ io.use(async (socket, next) => {
   socket.data.username = username;
   socket.data.googleAvatar = userToUse.user_metadata?.avatar_url || userToUse.user_metadata?.picture || "";
   const avatar = profileAvatarFor(userToUse.id) || socket.data.googleAvatar;
-  try {
-    const parsedAvatar = new URL(avatar);
-    socket.data.avatar = parsedAvatar.protocol === "https:" ? parsedAvatar.href : "";
-  } catch { socket.data.avatar = ""; }
+  if (avatar.startsWith("/api/")) socket.data.avatar = avatar;
+  else {
+    try { const parsedAvatar = new URL(avatar); socket.data.avatar = parsedAvatar.protocol === "https:" ? parsedAvatar.href : ""; }
+    catch { socket.data.avatar = ""; }
+  }
   next();
 });
 async function getSupabaseUserForSocket(token) {
@@ -272,7 +273,7 @@ app.post("/auth/register", async (req, res) => {
   if (authUsers.some((user) => user.email === email)) return res.status(409).json({ error: "Email already in use" });
   try {
     const passwordHash = await bcrypt.hash(password, 12);
-    const user = { id: crypto.randomUUID(), name, displayName: name, username: "", bio: "", profilePhotoId: "", passwordHash, picture: "", provider: "email", createdAt: Date.now() };
+    const user = { id: crypto.randomUUID(), name, displayName: name, username: "", bio: "", profilePhotoId: "", email, passwordHash, picture: "", provider: "email", createdAt: Date.now() };
     await saveAuthUsers([...authUsers, user]);
     const sessionUser = startSession(user, req, res, req.body?.remember !== false);
     await saveAuthSessions();
@@ -438,7 +439,6 @@ function profileForUser(userId) {
   const oldUsername = usernameByUser.get(userId) || "";
   const oldEntry = oldUsername ? usernameRegistry.get(oldUsername.toLowerCase()) : null;
   return {
-    id: userId,
     displayName: String(account?.displayName || account?.name || oldEntry?.displayName || oldUsername || "Chatly member"),
     username: String(account?.username || oldUsername || ""),
     profilePhotoUrl: profileAvatarFor(userId),
@@ -482,7 +482,7 @@ async function savePublicProfile(user, fields) {
           const nameChanged = activeSocket.data.username !== username;
           activeSocket.data.username = username;
           const member = users.get(activeSocket.id);
-          if (member) users.set(activeSocket.id, { ...member, name: username, avatar: profile.profilePhotoUrl });
+          if (member) users.set(activeSocket.id, { ...member, name: profile.displayName, avatar: profile.profilePhotoUrl || member.avatar });
           if (nameChanged) activeSocket.emit("username updated", username);
         }
         io.emit("profile updated", { userId: user.id, profile });
@@ -519,12 +519,15 @@ app.patch("/api/profile", async (req, res) => {
 app.post("/api/conversations/direct", async (req, res) => {
   const user = await getSupabaseUser(req);
   if (!user) return res.status(401).json({ error: "Sign in to start a conversation." });
-  const targetId = String(req.body?.userId || "");
+  const targetUsername = normalizedUsername(req.body?.username).toLowerCase();
+  const targetId = usernameRegistry.get(targetUsername)?.id || "";
   if (!targetId || targetId === user.id) return res.status(400).json({ error: "Choose another Chatly user." });
   const profile = profileForUser(targetId);
   if (!profile?.username) return res.status(404).json({ error: "That Chatly user could not be found." });
-  const conversation = await ensureDirectConversation(user.id, targetId);
-  res.json({ conversationId: conversation.id, profile });
+  try {
+    const conversation = await ensureDirectConversation(user.id, targetId);
+    res.json({ conversationId: conversation.id, userId: targetId, profile });
+  } catch (error) { console.error("Could not create direct conversation:", error); res.status(500).json({ error: "Could not open that conversation." }); }
 });
 app.get("/api/users/search", async (req, res) => {
   const user = await getSupabaseUser(req);
@@ -1153,7 +1156,7 @@ io.on("connection", (socket) => {
   socket.join(`user:${socket.data.userId}`);
   // 1. Someone logs in
   socket.on("user joined", () => {
-    const name = socket.data.username;
+    const name = displayNameFor(socket.data.userId);
     if (users.has(socket.id)) return;
 
     const member = { name, avatar: socket.data.avatar, googleAvatar: socket.data.googleAvatar };
@@ -1175,7 +1178,9 @@ io.on("connection", (socket) => {
 
   socket.on("open direct", async (targetId) => {
     if (typeof targetId !== "string" || targetId === socket.data.userId || !usernameByUser.has(targetId)) return;
-    const storedConversation = await ensureDirectConversation(socket.data.userId, targetId);
+    let storedConversation;
+    try { storedConversation = await ensureDirectConversation(socket.data.userId, targetId); }
+    catch (error) { console.error("Could not open direct conversation:", error); socket.emit("message error", "Could not open that conversation."); return; }
     const conversation = storedConversation.id;
     sendConversation(socket, conversation);
     const target = [...users.entries()].find(([id]) => io.sockets.sockets.get(id)?.data.userId === targetId)?.[1];

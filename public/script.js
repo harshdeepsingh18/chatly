@@ -980,7 +980,7 @@ function createAvatar(name, url, className = "avatar") {
   avatar.className = className;
   avatar.setAttribute("aria-hidden", "true");
   const initials = String(name || "?").trim().slice(0, 1).toUpperCase() || "?";
-  if (url && (/^https:\/\//i.test(url) || /^\/api\/avatars\/avatar-\d{1,3}\.svg$/.test(url))) {
+  if (url && (/^https:\/\//i.test(url) || /^\/api\/(?:avatars\/avatar-\d{1,3}\.svg|profile-photos\/[0-9a-f-]{36})$/i.test(url))) {
     const image = document.createElement("img");
     image.src = url;
     image.alt = "";
@@ -2263,7 +2263,7 @@ socket.on("profile updated", ({ userId, profile }) => {
   if (!profile) return;
   if (currentDirectUser?.id === userId) { currentDirectUser.name = profile.displayName; currentDirectUser.username = profile.username; currentDirectUser.avatar = profile.profilePhotoUrl || currentDirectUser.avatar; setConversationHeading("user", `${profile.displayName} · @${profile.username}`); }
   if (userId === currentUserId && currentProfile) { Object.assign(currentProfile, profile, { name: profile.displayName, avatar: profile.profilePhotoUrl || currentProfile.googleAvatar }); username = profile.username; updateProfilePanel(); }
-  if (!$ ("contacts-section").classList.contains("hidden")) loadContacts();
+  if (!$("contacts-section").classList.contains("hidden")) loadContacts();
 });
 
 let peopleSearchSequence = 0;
@@ -2308,9 +2308,9 @@ async function openPublicProfile(usernameValue) {
 }
 async function startDirectConversation(person) {
   try {
-    const response = await fetch("/api/conversations/direct", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ userId: person.id }) });
+    const response = await fetch("/api/conversations/direct", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ username: person.username }) });
     const result = await response.json(); if (!response.ok) throw new Error(result.error || "Could not open that conversation.");
-    setAppPage("messages"); if (!socket.connected) socket.connect(); socket.emit("open direct", person.id); sidebar.classList.remove("open");
+    setAppPage("messages"); if (!socket.connected) socket.connect(); socket.emit("open direct", result.userId); sidebar.classList.remove("open");
   } catch (error) { showErrorToast(error.message); }
 }
 function markAppPageActive(page) {
@@ -2521,10 +2521,9 @@ function addSearchResultGroup(root, title, items, labelFor, activate) {
 function renderGlobalSearch(data) {
   const root = $("global-search-results");
   root.replaceChildren();
-  addSearchResultGroup(root, "PEOPLE", data.people, (person) => ({ primary: person.name, secondary: "Open a direct conversation" }), (person) => {
+  addSearchResultGroup(root, "PEOPLE", data.people, (person) => ({ primary: person.displayName || person.name, secondary: `@${person.username || ""}` }), (person) => {
     $("global-search-modal").classList.add("hidden");
-    setAppPage("messages");
-    socket.emit("open direct", person.id);
+    startDirectConversation(person);
   });
   addSearchResultGroup(root, "MESSAGES", data.messages, (message) => ({ primary: message.user, secondary: message.text || message.attachment?.name || "Shared a file" }), (message) => {
     $("global-search-modal").classList.add("hidden");
@@ -2661,7 +2660,7 @@ function updateDetailsPanel() {
   const conversationAvatar = person || group ? createAvatar(name, person?.avatar || "", "avatar conversation-avatar") : iconElement("hash", "lucide-icon conversation-room-avatar");
   conversationAvatar.id = "conversation-avatar";
   $("conversation-avatar").replaceWith(conversationAvatar);
-  setConversationHeading(person ? "user" : group ? "users" : "hash", name);
+  setConversationHeading(person ? "user" : group ? "users" : "hash", person ? `${name}${person.username ? ` · @${person.username}` : ""}` : name);
   const onlineGroupMembers = group ? group.memberIds.filter((id) => id === currentUserId || onlineUserCache.some((user) => user.id === id)).length : 0;
   $("conversation-subtitle").textContent = person
     ? (onlineUserCache.some((user) => user.id === person.id) ? "Direct message · Online" : "Direct message")
