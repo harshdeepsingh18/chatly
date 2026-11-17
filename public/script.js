@@ -2455,6 +2455,7 @@ function setAppPage(page) {
   markAppPageActive(page);
   closeRoomPicker();
   sidebar.classList.remove("open");
+  chatScreen.dataset.page = page;
   chatScreen.classList.toggle("aura-page", page === "aura");
   $("profile-section").classList.toggle("hidden", page !== "profile");
   $("settings-section").classList.toggle("hidden", page !== "settings");
@@ -2501,6 +2502,8 @@ function setAppPage(page) {
   }
 }
 document.querySelectorAll("[data-page]").forEach((button) => button.addEventListener("click", () => setAppPage(button.dataset.page)));
+document.querySelectorAll("[data-notifications-open]").forEach((button) => button.addEventListener("click", () => $("notifications-toggle").click()));
+$("sidebar-signout").addEventListener("click", () => $("signout-btn").click());
 window.addEventListener("popstate", () => setAppPage(window.location.pathname === "/profile" ? "profile" : window.location.pathname === "/settings" ? "settings" : "messages"));
 $("sidebar-find-people").addEventListener("click", () => setAppPage("contacts"));
 $("messages-find-people").addEventListener("click", () => setAppPage("contacts"));
@@ -2549,6 +2552,8 @@ document.querySelectorAll("[data-profile-tab]").forEach((button) => button.addEv
 $("edit-profile-open").addEventListener("click", () => { updateProfilePanel(); $("settings-status").textContent = ""; $("settings-modal").classList.remove("hidden"); });
 $("settings-edit-profile").addEventListener("click", () => $("edit-profile-open").click());
 $("settings-signout").addEventListener("click", () => $("signout-btn").click());
+document.querySelectorAll("[data-settings-edit-profile]").forEach((button) => button.addEventListener("click", () => $("edit-profile-open").click()));
+document.querySelectorAll("[data-settings-signout]").forEach((button) => button.addEventListener("click", () => $("signout-btn").click()));
 $("profile-followers-link").addEventListener("click", () => setAppPage("followers"));
 $("profile-following-link").addEventListener("click", () => setAppPage("following"));
 
