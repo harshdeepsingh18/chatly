@@ -1,6 +1,6 @@
 ﻿# Chatly
 
-Chatly is a real-time chat app built with Node.js, Express, and Socket.IO. It uses Google Identity Services and server-side email/password accounts for sign-in, alongside private chats, groups, file sharing, voice/video calls, and games.
+Chatly is a real-time chat app built with Node.js, Express, and Socket.IO. Google sign-in reuses the configured Supabase provider (or an optional direct Google Identity Services client), while email/password accounts use server-side bcrypt hashes and HttpOnly sessions.
 
 ## Live site
 
@@ -8,7 +8,7 @@ Chatly is a real-time chat app built with Node.js, Express, and Socket.IO. It us
 
 ## Features
 
-- Google Identity Services sign-in with server-verified ID tokens and HttpOnly sessions
+- Google sign-in with server-verified identity and HttpOnly sessions
 - Public chat rooms, private conversations, and member groups
 - Live messages, presence, typing status, and unread counts
 - Saved and pinned messages, search, and file sharing
@@ -37,7 +37,7 @@ Requirements: Node.js 18 or newer and npm.
 
    On Windows PowerShell, use `Copy-Item .env.example .env` instead.
 
-3. Set `GOOGLE_CLIENT_ID` and a private `SESSION_SECRET` in `.env` as described below.
+3. Set the Supabase values copied from your existing project in `.env`. `SESSION_SECRET` can be set as described below.
 4. Start Chatly:
 
    ```sh
@@ -54,10 +54,10 @@ Set these values in your local `.env` file or in your hosting provider's environ
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `GOOGLE_CLIENT_ID` | Yes for Google sign-in | Google OAuth 2.0 Web client ID used by Google Identity Services and verified by the server. |
-| `SESSION_SECRET` | Yes in production | Long random secret used to sign HttpOnly session cookies. |
-| `SUPABASE_URL` | No | Legacy Supabase token verification; new accounts use Chatly server sessions. |
-| `SUPABASE_ANON_KEY` | No | Legacy Supabase token verification. Never use a service-role key here. |
+| `SUPABASE_URL` | Yes for Google sign-in | Existing Supabase project URL; its Google provider handles the OAuth chooser and verifies sign-in. |
+| `SUPABASE_ANON_KEY` | Yes for Google sign-in | Existing Supabase anon/publishable key. Never use a service-role key here. |
+| `GOOGLE_CLIENT_ID` | No | Optional direct Google Identity Services client ID; if unset, Chatly uses the existing Supabase Google provider. |
+| `SESSION_SECRET` | Recommended | Long random secret for signing HttpOnly cookies. If unset, Chatly creates one in `DATA_DIR`; keep that directory persistent. |
 | `DATA_DIR` | No | Directory for persistent chat data. Defaults to `./data`. Set to the Render disk mount path when deploying with a disk. |
 | `GEMINI_API_KEY` | No | Server-side key for the Aura study helper. |
 | `GEMINI_MODEL` | No | Gemini model name; defaults to the value in `.env.example`. |
@@ -69,13 +69,15 @@ AI keys stay on the server. Do not add Supabase service-role keys, Google OAuth 
 
 ## Configure sign-in
 
-1. In Google Cloud Console, create an OAuth client with application type **Web application**.
-2. Add `http://localhost:3000` and your deployed `https://<your-service>.onrender.com` URL under **Authorized JavaScript origins**. This ID-token flow does not require an authorized redirect URI.
-3. Copy the OAuth client ID into `GOOGLE_CLIENT_ID` in local `.env` and Render Environment settings. Do not put a Google client secret in the browser.
-4. Set `SESSION_SECRET` to a long random value on Render and locally.
-5. For durable user accounts and chat data, attach a persistent Render disk and set `DATA_DIR=/var/data`.
+Chatly reuses the Supabase URL and anon key already in `.env`. The Google button signs in through the Google provider configured in Supabase; the backend verifies the returned Supabase access token and exchanges it for Chatly's HttpOnly session.
 
-Email/password accounts are stored in `DATA_DIR/auth-users.json` with bcrypt password hashes. The server verifies Google ID tokens and starts a signed HttpOnly session cookie for either sign-in method. Cookies are Secure on HTTPS and SameSite=Lax. Requests stay same-origin, so permissive CORS is not needed. Remember me controls whether the cookie persists after the browser closes.
+1. In Render Environment settings, carry over the existing `SUPABASE_URL` and `SUPABASE_ANON_KEY` values from your local configuration. Keep the anon key private from source control even though it is designed to be publishable.
+2. In Supabase **Authentication → Providers → Google**, make sure Google is enabled and your existing Google OAuth client is configured. If creating a new client, add the Supabase callback URL shown there to Google's **Authorized redirect URIs**.
+3. In Supabase **Authentication → URL Configuration**, allow both `http://localhost:3000` and `https://chatly-1zub.onrender.com` as redirect URLs.
+4. Attach a persistent Render disk and set `DATA_DIR=/var/data`. Set `SESSION_SECRET` in Render to a long random value so signed cookies remain valid across restarts.
+5. If you want direct Google Identity Services instead of Supabase, set `GOOGLE_CLIENT_ID` and add `http://localhost:3000` plus `https://chatly-1zub.onrender.com` as **Authorized JavaScript origins** in Google Cloud Console.
+
+New email/password accounts are stored in `DATA_DIR/auth-users.json` with bcrypt hashes. Existing Supabase email/password accounts are checked with Supabase on their first sign-in and then receive a Chatly session. Cookies are Secure on HTTPS and SameSite=Lax. Requests stay same-origin, so permissive CORS is not needed. Remember me controls whether the cookie persists after the browser closes.
 
 ## Deploy to Render
 
@@ -90,7 +92,7 @@ Deploy Chatly as a [Render Web Service](https://render.com/docs/web-services) co
    | Build command | `npm install` |
    | Start command | `npm start` |
 
-3. In the service's [Environment settings](https://render.com/docs/configure-environment-variables), add `GOOGLE_CLIENT_ID` and `SESSION_SECRET`. Add `DATA_DIR=/var/data` when using a persistent disk. Add `GEMINI_API_KEY` or `OPENAI_API_KEY` only if you want Aura enabled. Do not upload `.env` to the repository.
+3. In the service's [Environment settings](https://render.com/docs/configure-environment-variables), set `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SESSION_SECRET`. Add `DATA_DIR=/var/data` when using a persistent disk. Add `GEMINI_API_KEY` or `OPENAI_API_KEY` only if you want Aura enabled. Do not upload `.env` to the repository.
 4. Create the Render service and wait for its first deploy. Copy the service's `https://â€¦.onrender.com` URL.
 5. Add `https://chatly-1zub.onrender.com` to Supabase **Authentication â†’ URL Configuration** as the Site URL and an allowed redirect URL. Add the Supabase callback URL to the Google OAuth client's authorized redirect URIs.
 

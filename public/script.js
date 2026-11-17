@@ -1808,6 +1808,7 @@ $("scroll-latest").addEventListener("click", () => messagesBox.scrollTo({ top: m
 messagesBox.addEventListener("scroll", updateScrollLatest, { passive: true });
 
 let resumedAuthSession = false;
+let authResumePromise = null;
 async function finishAuthentication(user) {
   resumedAuthSession = true;
   document.body.classList.add("authenticated");
@@ -1837,14 +1838,31 @@ async function finishAuthentication(user) {
   if (hasSavedUsername) await enterChat();
   else usernameScreen.classList.remove("hidden");
 }
-async function resumeAuthSession() {
-  if (resumedAuthSession) return;
-  try {
-    const response = await fetch("/auth/me", { credentials: "same-origin" });
-    if (!response.ok) { loginScreen.classList.remove("hidden"); chatScreen.classList.add("hidden"); return; }
-    const { user } = await response.json();
-    if (user) await finishAuthentication(user);
-  } catch { loginScreen.classList.remove("hidden"); chatScreen.classList.add("hidden"); }
+function resumeAuthSession() {
+  if (resumedAuthSession) return Promise.resolve();
+  if (authResumePromise) return authResumePromise;
+  authResumePromise = (async () => {
+    try {
+      const response = await fetch("/auth/me", { credentials: "same-origin" });
+      if (response.ok) {
+        const { user } = await response.json();
+        if (user) { await finishAuthentication(user); return; }
+      }
+      const { data } = supabaseClient ? await supabaseClient.auth.getSession() : { data: { session: null } };
+      if (data.session?.access_token) {
+        const exchange = await fetch("/auth/supabase", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accessToken: data.session.access_token }) });
+        const result = await exchange.json();
+        if (!exchange.ok) throw new Error(result.error || "Could not restore your Google sign-in.");
+        await finishAuthentication(result.user);
+        return;
+      }
+      loginScreen.classList.remove("hidden"); chatScreen.classList.add("hidden");
+    } catch (error) {
+      loginScreen.classList.remove("hidden"); chatScreen.classList.add("hidden");
+      if (error.message) authToast(error.message, true);
+    }
+  })();
+  return authResumePromise;
 }
 async function enterChat() {
   await loadGroups();
@@ -1984,25 +2002,38 @@ window.chatlyGoogleCredential = async ({ credential }) => {
   finally { button.disabled = false; }
 };
 let googlePromptPending = false;
-function startGoogleSignIn(button) {
-  if (!window.CHATLY_GOOGLE_CLIENT_ID) { authToast("Google sign-in is not configured yet. Add GOOGLE_CLIENT_ID in Render settings.", true); return; }
-  if (!window.google?.accounts?.id) { authToast("Google sign-in could not load. Check your connection and try again.", true); return; }
-  if (!window.chatlyGoogleInitialized) {
-    window.google.accounts.id.initialize({ client_id: window.CHATLY_GOOGLE_CLIENT_ID, callback: window.chatlyGoogleCredential, cancel_on_tap_outside: true, auto_select: false });
-    window.chatlyGoogleInitialized = true;
-  }
-  googlePromptPending = true; button.disabled = true;
-  window.google.accounts.id.prompt((notice) => {
-    if (!googlePromptPending) return;
-    if (notice.isNotDisplayed?.() || notice.isSkippedMoment?.()) {
-      googlePromptPending = false; button.disabled = false;
-      authToast(notice.isNotDisplayed?.() ? "Google sign-in was blocked by the browser. Allow pop-ups or try again." : "Google sign-in was cancelled. You can try again anytime.", true);
+async function startGoogleSignIn(button) {
+  if (button.disabled) return;
+  if (window.CHATLY_GOOGLE_CLIENT_ID && window.google?.accounts?.id) {
+    if (!window.chatlyGoogleInitialized) {
+      window.google.accounts.id.initialize({ client_id: window.CHATLY_GOOGLE_CLIENT_ID, callback: window.chatlyGoogleCredential, cancel_on_tap_outside: true, auto_select: false });
+      window.chatlyGoogleInitialized = true;
     }
-  });
-  setTimeout(() => { if (googlePromptPending) { googlePromptPending = false; button.disabled = false; authToast("Google sign-in was cancelled or did not open. Please try again.", true); } }, 20000);
+    googlePromptPending = true; button.disabled = true;
+    window.google.accounts.id.prompt((notice) => {
+      if (!googlePromptPending) return;
+      if (notice.isNotDisplayed?.() || notice.isSkippedMoment?.()) {
+        googlePromptPending = false; button.disabled = false;
+        authToast(notice.isNotDisplayed?.() ? "Google sign-in was blocked by the browser. Allow pop-ups or try again." : "Google sign-in was cancelled. Try again anytime.", true);
+      }
+    });
+    setTimeout(() => { if (googlePromptPending) { googlePromptPending = false; button.disabled = false; authToast("Google sign-in was cancelled or did not open. Please try again.", true); } }, 20000);
+    return;
+  }
+  if (!supabaseClient) { authToast("Google sign-in is unavailable. Check SUPABASE_URL and SUPABASE_ANON_KEY in the server environment.", true); return; }
+  button.disabled = true;
+  try {
+    const { error } = await supabaseClient.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
+    if (error) throw error;
+  } catch (error) {
+    button.disabled = false;
+    authToast(error.message || "Google sign-in could not open. Check that Google is enabled in Supabase Auth.", true);
+  }
 }
 $("auth-google").addEventListener("click", (event) => startGoogleSignIn(event.currentTarget));
 document.querySelector(".register-google").addEventListener("click", (event) => startGoogleSignIn(event.currentTarget));
+const providerError = new URLSearchParams(window.location.search).get("error_description");
+if (providerError) authToast("Google sign-in was cancelled or failed. Please try again.", true);
 resumeAuthSession();
 
 function updateProfilePanel() {
@@ -2110,10 +2141,13 @@ $("settings-username-form").addEventListener("submit", async (event) => {
 socket.on("username updated", (name) => { username = name; if (currentProfile) currentProfile.name = name; $("me").textContent = "You are " + name; updateProfilePanel(); });
 $("signout-btn").addEventListener("click", async () => {
   $("signout-btn").disabled = true;
-  try { await fetch("/auth/logout", { method: "POST", credentials: "same-origin" }); }
+  try {
+    await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
+    if (supabaseClient) await supabaseClient.auth.signOut();
+  }
   finally {
     socket.disconnect();
-    authToken = ""; currentUserId = ""; currentProfile = null; username = ""; resumedAuthSession = false;
+    authToken = ""; currentUserId = ""; currentProfile = null; username = ""; resumedAuthSession = false; authResumePromise = null;
     document.body.classList.remove("authenticated");
     $("settings-modal").classList.add("hidden");
     chatScreen.classList.add("hidden"); usernameScreen.classList.add("hidden"); loginScreen.classList.remove("hidden");

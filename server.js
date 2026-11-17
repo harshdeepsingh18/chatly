@@ -40,7 +40,7 @@ const uploadDirectory = path.join(dataDirectory, "uploads");
 const authUsersFile = path.join(dataDirectory, "auth-users.json");
 const authSessionsFile = path.join(dataDirectory, "auth-sessions.json");
 const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
-const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
+let sessionSecret = process.env.SESSION_SECRET || "";
 const googleVerifier = new OAuth2Client(googleClientId || undefined);
 const authSessions = new Map();
 let authUsers = [];
@@ -58,7 +58,7 @@ const chatRooms = ["general", "doubts", "notes"];
 
 app.use(express.json({ limit: "8kb" }));
 app.get("/", (req, res) => {
-  if (!sessionUser(req)) return res.redirect("/login");
+  if (!sessionUser(req) && !req.query.code && !req.query.error) return res.redirect("/login");
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 app.use(express.static(path.join(__dirname, "public")));
@@ -217,8 +217,26 @@ app.post("/auth/register", async (req, res) => {
 app.post("/auth/login", async (req, res) => {
   const email = String(req.body?.email || "").trim().toLowerCase();
   const password = String(req.body?.password || "");
-  const user = authUsers.find((item) => item.email === email);
-  const valid = user?.passwordHash ? await bcrypt.compare(password, user.passwordHash) : false;
+  let user = authUsers.find((item) => item.email === email);
+  let valid = user?.passwordHash ? await bcrypt.compare(password, user.passwordHash) : false;
+  if (!valid && (!user || user.supabaseId) && supabaseUrl && supabaseAnonKey) {
+    try {
+      const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, { method: "POST", headers: { apikey: supabaseAnonKey, "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
+      if (response.ok) {
+        const result = await response.json();
+        const supaUser = result.user;
+        const metadata = supaUser?.user_metadata || {};
+        if (supaUser?.id && supaUser.email) {
+          const existing = authUsers.find((item) => item.id === supaUser.id || item.email === supaUser.email.toLowerCase());
+          user = existing
+            ? { ...existing, supabaseId: supaUser.id, picture: existing.picture || metadata.avatar_url || metadata.picture || "" }
+            : { id: supaUser.id, supabaseId: supaUser.id, email: supaUser.email.toLowerCase(), name: String(metadata.full_name || metadata.name || email.split("@")[0]).slice(0, 80), picture: metadata.avatar_url || metadata.picture || "", provider: "email", createdAt: Date.now() };
+          await saveAuthUsers(existing ? authUsers.map((item) => item.id === existing.id ? user : item) : [...authUsers, user]);
+          valid = true;
+        }
+      }
+    } catch { /* Supabase fallback is optional; use the same generic credential error. */ }
+  }
   if (!valid) return res.status(401).json({ error: "Wrong email or password" });
   const sessionUser = startSession(user, req, res, req.body?.remember !== false);
   await saveAuthSessions();
@@ -245,6 +263,24 @@ app.post("/auth/google", async (req, res) => {
     await saveAuthSessions();
     res.json({ user: sessionUser });
   } catch (error) { console.warn("Google ID token verification failed:", error.message); res.status(401).json({ error: "Google sign-in could not be verified. Please try again." }); }
+});
+app.post("/auth/supabase", async (req, res) => {
+  const accessToken = String(req.body?.accessToken || "");
+  const verified = await getSupabaseUserForSocket(accessToken);
+  if (!verified?.id || !verified.email) return res.status(401).json({ error: "Google sign-in could not be verified. Please try again." });
+  const email = verified.email.toLowerCase();
+  const metadata = verified.user_metadata || {};
+  let user = authUsers.find((item) => item.id === verified.id || item.email === email);
+  if (!user) {
+    user = { id: verified.id, supabaseId: verified.id, email, name: String(metadata.full_name || metadata.name || email.split("@")[0]).slice(0, 80), picture: metadata.avatar_url || metadata.picture || "", provider: "google", createdAt: Date.now() };
+    await saveAuthUsers([...authUsers, user]);
+  } else if (user.supabaseId !== verified.id || (!user.picture && (metadata.avatar_url || metadata.picture))) {
+    user = { ...user, supabaseId: verified.id, picture: user.picture || metadata.avatar_url || metadata.picture || "" };
+    await saveAuthUsers(authUsers.map((item) => item.id === user.id ? user : item));
+  }
+  const sessionUser = startSession(user, req, res);
+  await saveAuthSessions();
+  res.json({ user: sessionUser });
 });
 app.post("/auth/logout", async (req, res) => {
   const [id] = cookieValue(req, SESSION_COOKIE).split(".");
@@ -1350,6 +1386,16 @@ snakeArenaTimer.unref();
 const PORT = process.env.PORT || 3000;
 
 async function startServer() {
+  if (!sessionSecret) {
+    const secretFile = path.join(dataDirectory, "auth-session-secret");
+    try { sessionSecret = await readFile(secretFile, "utf8"); }
+    catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      sessionSecret = crypto.randomBytes(48).toString("base64url");
+      await mkdir(dataDirectory, { recursive: true });
+      await writeFile(secretFile, sessionSecret, { encoding: "utf8", mode: 0o600 });
+    }
+  }
   try { authUsers = JSON.parse(await readFile(authUsersFile, "utf8")); }
   catch (error) { if (error.code !== "ENOENT") throw error; authUsers = []; }
   try {

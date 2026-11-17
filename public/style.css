@@ -670,6 +670,88 @@ body.authenticated #login { display:none !important; }
   .auth-subtitle { margin-bottom:12px; }
 }
 @media(prefers-reduced-motion:reduce) { .auth-redesign *, .auth-redesign *::before,.auth-redesign *::after { transition:none !important; animation-duration:.01ms !important; } }
+
+/* Keep sender names readable and give incoming, outgoing, and Aura messages the same row structure. */
+.msg .name,
+.msg.aura-message .name {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: max-content;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  gap: 8px;
+  padding: 0;
+  text-align: left;
+}
+.msg .name > span:last-child {
+  width: auto;
+  max-width: none;
+  min-width: 0;
+  overflow: visible;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.25;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+.msg .msg-bubble,
+.msg.aura-message .msg-bubble { grid-row: 2; }
+.msg > .time,
+.msg.aura-message > .time { grid-row: 3; }
+.msg.mine {
+  grid-template-columns: minmax(0, 1fr);
+  align-self: flex-end;
+}
+.msg.mine .name {
+  grid-column: 1;
+  justify-self: end;
+  justify-content: flex-end;
+}
+.msg.mine .name .message-avatar { order: 2; }
+.msg.mine .msg-bubble,
+.msg.mine > .time { grid-column: 1; }
+.msg.mine .msg-bubble { justify-self: end; }
+.msg.mine > .time { text-align: right; }
+.msg.aura-message {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: min(520px, 70%);
+}
+.msg.aura-message .name { grid-column: 1; }
+.msg.aura-message .name .aura-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: none;
+  white-space: nowrap;
+}
+.msg.aura-message .msg-bubble,
+.msg.aura-message > .time { grid-column: 1; }
+.msg.same-sender .name,
+.msg.aura-message.same-sender .name { display: none; }
+@media (max-width: 899px) {
+  .msg, .msg.aura-message { grid-template-columns: minmax(0, 1fr); max-width: 82%; row-gap: 3px; }
+  .msg .name, .msg.aura-message .name {
+    grid-column: 1;
+    grid-row: 1;
+    width: max-content;
+    max-width: 100%;
+    min-height: 36px;
+    display: flex;
+    justify-content: flex-start;
+    gap: 7px;
+  }
+  .msg:not(.aura-message) .name,
+  .msg.mine .name { display: flex; }
+  .msg.mine .name { justify-self: end; justify-content: flex-end; }
+  .msg .msg-bubble, .msg.aura-message .msg-bubble { grid-column: 1; grid-row: 2; }
+  .msg > .time, .msg.aura-message > .time { grid-column: 1; grid-row: 3; }
+  .msg.same-sender .name, .msg.aura-message.same-sender .name { display: none; }
+  .msg .message-avatar { display: block; }
+}
 @media (min-width: 701px) and (max-width: 1000px) {
   #chat { grid-template-columns: 230px minmax(0, 1fr); }
   #details-panel { display: none; }
